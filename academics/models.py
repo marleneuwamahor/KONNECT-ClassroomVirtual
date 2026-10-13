@@ -47,3 +47,32 @@ class Enrollment(models.Model):
 
     def __str__(self):
         return f"{self.student} -> {self.school_class}"
+
+class Attendance(models.Model):
+    class Status(models.TextChoices):
+        PRESENT = "present", "Present"
+        ABSENT = "absent", "Absent"
+        LATE = "late", "Late"
+        EXCUSED = "excused", "Excused"
+
+    student = models.ForeignKey(
+        "accounts.Student", on_delete=models.CASCADE, related_name="attendance"
+    )
+    school_class = models.ForeignKey(
+        SchoolClass, on_delete=models.CASCADE, related_name="attendance", db_column="class_id"
+    )
+    attendance_date = models.DateField(default=timezone.localdate)
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.PRESENT)
+
+    class Meta:
+        db_table = "attendance"
+        verbose_name_plural = "attendance"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["student", "school_class", "attendance_date"],
+                name="uniq_attendance_per_day",
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.student} {self.attendance_date} {self.status}"
