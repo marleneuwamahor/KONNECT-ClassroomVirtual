@@ -41,6 +41,7 @@ INSTALLED_APPS = [
     "django_filters",
     "rest_framework_simplejwt",
     "accounts",
+    "academics",
 ]
 AUTH_USER_MODEL = "accounts.User"
 MIDDLEWARE = [
