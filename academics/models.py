@@ -76,3 +76,35 @@ class Attendance(models.Model):
 
     def __str__(self):
         return f"{self.student} {self.attendance_date} {self.status}"
+
+
+class LiveSession(models.Model):
+    class Status(models.TextChoices):
+        SCHEDULED = "scheduled", "Scheduled"
+        LIVE = "live", "Live"
+        ENDED = "ended", "Ended"
+        CANCELLED = "cancelled", "Cancelled"
+
+    school_class = models.ForeignKey(
+        SchoolClass, on_delete=models.CASCADE, related_name="live_sessions", db_column="class_id"
+    )
+    teacher = models.ForeignKey(
+        "accounts.Teacher", on_delete=models.PROTECT, related_name="live_sessions"
+    )
+    title = models.CharField(max_length=200)
+    start_time = models.DateTimeField()
+    end_time = models.DateTimeField()
+    meeting_url = models.URLField(blank=True)
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.SCHEDULED)
+
+    class Meta:
+        db_table = "live_sessions"
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(end_time__gt=F("start_time")),
+                name="live_session_end_after_start",
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.title} ({self.start_time:%Y-%m-%d %H:%M})"
