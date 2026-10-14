@@ -44,7 +44,8 @@ INSTALLED_APPS = [
     "academics",
     "assessments",
     "communications",
-    "billing"
+    "billing",
+    "audit"
 ]
 AUTH_USER_MODEL = "accounts.User"
 MIDDLEWARE = [
