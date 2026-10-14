@@ -42,6 +42,7 @@ INSTALLED_APPS = [
     "rest_framework_simplejwt",
     "accounts",
     "academics",
+    "assessments",
 ]
 AUTH_USER_MODEL = "accounts.User"
 MIDDLEWARE = [
