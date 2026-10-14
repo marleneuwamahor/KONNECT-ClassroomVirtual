@@ -22,3 +22,26 @@ class Assignment(models.Model):
 
     def __str__(self):
         return self.title
+
+class Submission(models.Model):
+    assignment = models.ForeignKey(
+        Assignment, on_delete=models.CASCADE, related_name="submissions"
+    )
+    student = models.ForeignKey(
+        "accounts.Student", on_delete=models.CASCADE, related_name="submissions"
+    )
+    submitted_at = models.DateTimeField(default=timezone.now)
+    grade = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
+    file_url = models.URLField(blank=True)
+    feedback = models.TextField(blank=True)
+
+    class Meta:
+        db_table = "submissions"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["assignment", "student"], name="uniq_submission_per_student"
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.student} -> {self.assignment}"
