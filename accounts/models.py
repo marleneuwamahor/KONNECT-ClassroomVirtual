@@ -34,6 +34,14 @@ class User(AbstractBaseUser, PermissionsMixin):
     is_active = models.BooleanField(default=True)
     is_staff = models.BooleanField(default=False)
     created_at = models.DateTimeField(default=timezone.now)
+    role = models.CharField(max_length=20, choices=Role.choices, default=Role.STUDENT)
+
+    # profile columns (available to admin, teacher and student)
+    profile_image = models.URLField(blank=True)
+    phone = models.CharField(max_length=30, blank=True)
+    bio = models.TextField(blank=True)
+
+    is_active = models.BooleanField(default=True)
 
     objects = UserManager()
 

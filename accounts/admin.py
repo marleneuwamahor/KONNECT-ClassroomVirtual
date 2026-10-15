@@ -1,7 +1,7 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 
-from .models import Student, Teacher, User 
+from .models import Student, Teacher, User
 
 
 @admin.register(User)
@@ -12,13 +12,15 @@ class UserAdmin(BaseUserAdmin):
     search_fields = ("email", "name")
     fieldsets = (
         (None, {"fields": ("email", "password")}),
-        ("Profile", {"fields": ("name", "role")}),
+        ("Profile", {"fields": ("name", "role", "profile_image", "phone", "bio")}),
         ("Permissions", {"fields": ("is_active", "is_staff", "is_superuser", "groups", "user_permissions")}),
     )
     add_fieldsets = (
-        (None, {"classes": ("wide",), "fields": ("email", "name", "role", "password1", "password2")}),
-
+        (None, {"classes": ("wide",), "fields": (
+            "email", "name", "role", "phone", "password1", "password2",
+        )}),
     )
+
 
 @admin.register(Student)
 class StudentAdmin(admin.ModelAdmin):
