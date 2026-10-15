@@ -14,6 +14,10 @@ Including another URLconf
     1. Import the include() function: from django.urls import include, path
     2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
 """
+"""
+URL configuration for config project.
+"""
+
 from django.conf import settings
 from django.conf.urls.static import static
 from django.contrib import admin
@@ -21,9 +25,37 @@ from django.urls import include, path
 
 from config.views import home
 
+from drf_spectacular.views import (
+    SpectacularAPIView,
+    SpectacularSwaggerView,
+    SpectacularRedocView,
+)
+
 urlpatterns = [
+    # Homepage
     path("", home, name="home"),
+
+    # Django Admin
     path("admin/", admin.site.urls),
+
+    # API Documentation
+    path(
+        "api/schema/",
+        SpectacularAPIView.as_view(),
+        name="schema",
+    ),
+    path(
+        "swagger/",
+        SpectacularSwaggerView.as_view(url_name="schema"),
+        name="swagger-ui",
+    ),
+    path(
+        "redoc/",
+        SpectacularRedocView.as_view(url_name="schema"),
+        name="redoc",
+    ),
+
+    # API Endpoints
     path("api/", include("accounts.urls")),
     path("api/", include("academics.urls")),
     path("api/", include("assessments.urls")),
@@ -32,6 +64,7 @@ urlpatterns = [
     path("api/", include("audit.urls")),
 ]
 
+# Serve media files during local development
 if settings.DEBUG:
     urlpatterns += static(
         settings.MEDIA_URL,
