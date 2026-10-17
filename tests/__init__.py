@@ -3,7 +3,7 @@ from datetime import timedelta
 from django.utils import timezone
 from rest_framework.test import APITestCase
 
-from academics.models import Enrollment, SchoolClass
+from academics.models import Course, Enrollment
 from accounts.models import Student, Teacher, User
 from audit.models import AuditLog
 
@@ -17,8 +17,13 @@ class BaseAPITest(APITestCase):
         self.student = Student.objects.create(user=self.s_user, student_number="S1")
         self.s2_user = User.objects.create_user("s2@x.com", "pass12345!", name="Stu2", role="student")
         self.student2 = Student.objects.create(user=self.s2_user, student_number="S2")
-        self.klass = SchoolClass.objects.create(name="Math", grade="5", teacher=self.teacher)
-        Enrollment.objects.create(student=self.student, school_class=self.klass)
+        self.klass = Course.objects.create(
+            title="Math",
+            grade="5",
+            teacher=self.teacher,
+            status=Course.Status.APPROVED,
+        )
+        Enrollment.objects.create(student=self.student, course=self.klass)
 
     def login(self, user):
         self.client.force_authenticate(user)
@@ -42,7 +47,12 @@ class AuthTests(APITestCase):
 
 class AcademicsTests(BaseAPITest):
     def test_student_sees_only_enrolled_classes(self):
-        SchoolClass.objects.create(name="Art", grade="5", teacher=self.teacher)
+        Course.objects.create(
+            title="Art",
+            grade="5",
+            teacher=self.teacher,
+            status=Course.Status.APPROVED,
+        )
         self.login(self.s_user)
         res = self.client.get("/api/classes/")
         self.assertEqual([c["name"] for c in res.data["results"]], ["Math"])
@@ -57,6 +67,67 @@ class AcademicsTests(BaseAPITest):
         res = self.client.post("/api/classes/", {"name": "Science", "grade": "6"})
         self.assertEqual(res.status_code, 201)
         self.assertEqual(res.data["teacher"], self.teacher.id)
+
+    def test_course_requires_admin_approval_before_students_can_see_it(self):
+        other_user = User.objects.create_user(
+            "other-teacher@x.com",
+            "pass12345!",
+            name="Other Teacher",
+            role="teacher",
+        )
+        other_teacher = Teacher.objects.create(
+            user=other_user,
+            employee_number="E2",
+        )
+        self.login(self.t_user)
+        response = self.client.post(
+            "/api/courses/",
+            {"title": "Science", "teacher": other_teacher.id},
+        )
+        self.assertEqual(response.status_code, 201)
+        course = Course.objects.get(pk=response.data["id"])
+        self.assertEqual(course.teacher, self.teacher)
+        self.assertEqual(course.status, Course.Status.PENDING)
+
+        self.login(self.s_user)
+        self.assertNotIn(
+            course.id,
+            [item["id"] for item in self.client.get("/api/courses/").data["results"]],
+        )
+
+        self.login(self.admin)
+        response = self.client.post(f"/api/courses/{course.id}/approve/")
+        self.assertEqual(response.status_code, 200)
+        course.refresh_from_db()
+        self.assertEqual(course.status, Course.Status.APPROVED)
+        self.assertEqual(course.approved_by, self.admin)
+
+        self.login(self.s_user)
+        self.assertIn(
+            course.id,
+            [item["id"] for item in self.client.get("/api/courses/").data["results"]],
+        )
+
+    def test_teacher_cannot_reassign_owned_course(self):
+        other_user = User.objects.create_user(
+            "other-teacher@x.com",
+            "pass12345!",
+            name="Other Teacher",
+            role="teacher",
+        )
+        other_teacher = Teacher.objects.create(
+            user=other_user,
+            employee_number="E2",
+        )
+        self.login(self.t_user)
+        response = self.client.patch(
+            f"/api/courses/{self.klass.id}/",
+            {"teacher": other_teacher.id},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.klass.refresh_from_db()
+        self.assertEqual(self.klass.teacher, self.teacher)
 
     def test_only_admin_enrolls(self):
         payload = {"student": self.student2.id, "school_class": self.klass.id}

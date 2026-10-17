@@ -12,7 +12,7 @@ from rest_framework.test import APITestCase
 from accounts.models import Student, Teacher, User
 
 from .services.hms_service import create_hms_room
-from .models import Attendance, Enrollment, LiveSession, SchoolClass
+from .models import Attendance, Course, Enrollment, LiveSession
 
 
 class HMSServiceTests(TestCase):
@@ -83,17 +83,18 @@ class LiveSessionAPITests(APITestCase):
             user=self.other_student_user,
             student_number="S-101",
         )
-        self.school_class = SchoolClass.objects.create(
-            name="Science",
+        self.course = Course.objects.create(
+            title="Science",
             grade="7",
             teacher=self.teacher,
+            status=Course.Status.APPROVED,
         )
-        Enrollment.objects.create(student=self.student, school_class=self.school_class)
+        Enrollment.objects.create(student=self.student, course=self.course)
 
         self.start_time = timezone.now() + timedelta(hours=1)
         self.end_time = self.start_time + timedelta(hours=1)
         self.session = LiveSession.objects.create(
-            school_class=self.school_class,
+            course=self.course,
             teacher=self.teacher,
             title="Science lesson",
             start_time=self.start_time,
@@ -178,7 +179,7 @@ class LiveSessionAPITests(APITestCase):
         response = self.client.post(
             reverse("live-session-list"),
             {
-                "school_class": self.school_class.pk,
+                "school_class": self.course.pk,
                 "title": "New lesson",
                 "start_time": self.start_time.isoformat(),
                 "end_time": self.end_time.isoformat(),
@@ -198,7 +199,7 @@ class LiveSessionAPITests(APITestCase):
         response = self.client.post(
             reverse("live-session-list"),
             {
-                "school_class": self.school_class.pk,
+                "school_class": self.course.pk,
                 "title": "Manual meeting",
                 "start_time": self.start_time.isoformat(),
                 "end_time": self.end_time.isoformat(),
@@ -229,7 +230,7 @@ class LiveSessionAPITests(APITestCase):
         response = self.client.post(
             reverse("live-session-list"),
             {
-                "school_class": self.school_class.pk,
+                "school_class": self.course.pk,
                 "title": "Unavailable lesson",
                 "start_time": self.start_time.isoformat(),
                 "end_time": self.end_time.isoformat(),
@@ -313,7 +314,7 @@ class LiveSessionAPITests(APITestCase):
     def test_session_close_marks_enrolled_nonparticipants_absent(self):
         Enrollment.objects.create(
             student=self.other_student,
-            school_class=self.school_class,
+            course=self.course,
         )
         self.client.credentials(HTTP_X_KONNECT_WEBHOOK_SECRET="test-webhook-secret")
         response = self.client.post(

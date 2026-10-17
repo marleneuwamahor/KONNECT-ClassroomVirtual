@@ -7,11 +7,10 @@ class Announcement(models.Model):
     author = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="announcements"
     )
-    school_class = models.ForeignKey(
-        "academics.SchoolClass",
+    course = models.ForeignKey(
+        "academics.Course",
         on_delete=models.CASCADE,
         related_name="announcements",
-        db_column="class_id",
     )
     title = models.CharField(max_length=200)
     content = models.TextField()

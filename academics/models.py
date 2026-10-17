@@ -5,23 +5,51 @@ from django.db.models import F, Q
 from django.utils import timezone
 
 
-class SchoolClass(models.Model):
-    """CLASSES table. Named SchoolClass because `class` is a Python keyword."""
+class Course(models.Model):
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pending approval"
+        APPROVED = "approved", "Approved"
+        REJECTED = "rejected", "Rejected"
 
-    name = models.CharField(max_length=150)
+    class Visibility(models.TextChoices):
+        PUBLIC = "public", "Public"
+        PRIVATE = "private", "Private"
+
+    title = models.CharField(max_length=200)
     grade = models.CharField(max_length=50)
     teacher = models.ForeignKey(
-        "accounts.Teacher", on_delete=models.PROTECT, related_name="classes"
+        "accounts.Teacher", on_delete=models.PROTECT, related_name="courses"
     )
     description = models.TextField(blank=True)
+    visibility = models.CharField(
+        max_length=20,
+        choices=Visibility.choices,
+        default=Visibility.PUBLIC,
+    )
+    course_limit = models.PositiveIntegerField(
+        default=0,
+        help_text="Maximum active enrollments; zero means unlimited.",
+    )
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.PENDING,
+    )
+    approved_by = models.ForeignKey(
+        "accounts.User",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="approved_courses",
+    )
     created_at = models.DateTimeField(default=timezone.now)
 
     class Meta:
-        db_table = "classes"
-        verbose_name_plural = "classes"
+        db_table = "courses"
+        ordering = ["title", "id"]
 
     def __str__(self):
-        return f"{self.name} ({self.grade})"
+        return self.title
 
 
 class Enrollment(models.Model):
@@ -33,8 +61,8 @@ class Enrollment(models.Model):
     student = models.ForeignKey(
         "accounts.Student", on_delete=models.CASCADE, related_name="enrollments"
     )
-    school_class = models.ForeignKey(
-        SchoolClass, on_delete=models.CASCADE, related_name="enrollments", db_column="class_id"
+    course = models.ForeignKey(
+        Course, on_delete=models.CASCADE, related_name="enrollments"
     )
     enrolled_at = models.DateField(default=timezone.localdate)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.ACTIVE)
@@ -43,12 +71,12 @@ class Enrollment(models.Model):
         db_table = "enrollments"
         constraints = [
             models.UniqueConstraint(
-                fields=["student", "school_class"], name="uniq_student_class_enrollment"
+                fields=["student", "course"], name="uniq_student_course_enrollment"
             )
         ]
 
     def __str__(self):
-        return f"{self.student} -> {self.school_class}"
+        return f"{self.student} -> {self.course}"
 
 class Attendance(models.Model):
     class Status(models.TextChoices):
@@ -67,8 +95,8 @@ class Attendance(models.Model):
         null=True,
         blank=True,
     )
-    school_class = models.ForeignKey(
-        SchoolClass, on_delete=models.CASCADE, related_name="attendance", db_column="class_id"
+    course = models.ForeignKey(
+        Course, on_delete=models.CASCADE, related_name="attendance"
     )
     attendance_date = models.DateField(default=timezone.localdate)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.PRESENT)
@@ -82,7 +110,7 @@ class Attendance(models.Model):
         verbose_name_plural = "attendance"
         constraints = [
             models.UniqueConstraint(
-                fields=["student", "school_class", "attendance_date"],
+                fields=["student", "course", "attendance_date"],
                 condition=Q(live_session__isnull=True),
                 name="uniq_attendance_per_day",
             ),
@@ -104,8 +132,8 @@ class LiveSession(models.Model):
         ENDED = "ended", "Ended"
         CANCELLED = "cancelled", "Cancelled"
 
-    school_class = models.ForeignKey(
-        SchoolClass, on_delete=models.CASCADE, related_name="live_sessions", db_column="class_id"
+    course = models.ForeignKey(
+        Course, on_delete=models.CASCADE, related_name="live_sessions"
     )
     teacher = models.ForeignKey(
         "accounts.Teacher", on_delete=models.PROTECT, related_name="live_sessions"
@@ -150,3 +178,6 @@ class HMSWebhookEvent(models.Model):
 
     class Meta:
         db_table = "hms_webhook_events"
+
+
+SchoolClass = Course

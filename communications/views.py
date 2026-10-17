@@ -14,18 +14,18 @@ from .serializers import AnnouncementSerializer, NotificationSerializer
 class AnnouncementViewSet(viewsets.ModelViewSet):
     serializer_class = AnnouncementSerializer
     permission_classes = [IsTeacherOrAdminOrReadOnly]
-    filterset_fields = ["school_class", "author"]
+    filterset_fields = ["course", "author"]
     search_fields = ["title", "content"]
 
     def get_queryset(self):
-        qs = Announcement.objects.select_related("author", "school_class")
+        qs = Announcement.objects.select_related("author", "course")
         return class_scoped(qs, self.request.user)
 
     def perform_create(self, serializer):
         user = self.request.user
-        school_class = serializer.validated_data["school_class"]
-        if user.role == User.Role.TEACHER and school_class.teacher.user_id != user.id:
-            raise PermissionDenied("You can only post announcements to your own classes.")
+        course = serializer.validated_data["course"]
+        if user.role == User.Role.TEACHER and course.teacher.user_id != user.id:
+            raise PermissionDenied("You can only post announcements to your own courses.")
         serializer.save(author=user)
 
 

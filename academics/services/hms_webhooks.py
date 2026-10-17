@@ -27,7 +27,7 @@ def _attendance_for_peer(session, student, joined_at):
         student=student,
         live_session=session,
         defaults={
-            "school_class": session.school_class,
+            "course": session.course,
             "attendance_date": attendance_date,
             "status": Attendance.Status.ABSENT,
             "auto_marked": True,
@@ -74,7 +74,7 @@ def _record_peer_event(session, event_type, data):
 
     enrollment = Enrollment.objects.filter(
         student__user_id=user_id,
-        school_class=session.school_class,
+        course=session.course,
         status=Enrollment.Status.ACTIVE,
     ).select_related("student").first()
     if enrollment is None:
@@ -123,7 +123,7 @@ def _close_session_attendance(session, data):
         attendance.save(update_fields=["left_at", "status", "marked_at"])
 
     enrolled_students = Student.objects.filter(
-        enrollments__school_class=session.school_class,
+        enrollments__course=session.course,
         enrollments__status=Enrollment.Status.ACTIVE,
     ).distinct()
     attendance_date = timezone.localtime(session.start_time).date()
@@ -132,7 +132,7 @@ def _close_session_attendance(session, data):
             student=student,
             live_session=session,
             defaults={
-                "school_class": session.school_class,
+                "course": session.course,
                 "attendance_date": attendance_date,
                 "status": Attendance.Status.ABSENT,
                 "auto_marked": True,
@@ -163,7 +163,7 @@ def process_hms_webhook(payload):
     if not isinstance(room_id, str) or not room_id:
         raise ValueError("Webhook data is missing its room ID.")
     session = LiveSession.objects.filter(hms_room_id=room_id).select_related(
-        "school_class"
+        "course"
     ).first()
     if session is None:
         return True

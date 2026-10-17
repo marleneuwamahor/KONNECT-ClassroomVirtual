@@ -5,6 +5,7 @@ from datetime import timedelta
 from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
 from django.db import transaction
+from django.db.models import Q
 from django.utils import timezone
 from rest_framework import permissions, status, viewsets
 from rest_framework.decorators import action
@@ -15,9 +16,10 @@ from rest_framework.response import Response
 from accounts.models import User
 from accounts.permissions import IsAdminRole, IsTeacherOrAdmin, IsTeacherOrAdminOrReadOnly
 from accounts.scoping import is_admin, student_scoped
-from .models import Attendance, Enrollment, LiveSession, SchoolClass
+from .models import Attendance, Course, Enrollment, LiveSession
 from .serializers import (
     AttendanceSerializer,
+    CourseSerializer,
     EnrollmentSerializer,
     LiveSessionSerializer,
     SchoolClassSerializer,
@@ -51,31 +53,90 @@ def resolve_teacher(request, serializer):
     return teacher
 
 
-class SchoolClassViewSet(viewsets.ModelViewSet):
-    serializer_class = SchoolClassSerializer
+class CourseViewSet(viewsets.ModelViewSet):
+    serializer_class = CourseSerializer
     permission_classes = [IsTeacherOrAdminOrReadOnly]
-    filterset_fields = ["grade", "teacher"]
-    search_fields = ["name", "description"]
+    filterset_fields = ["status", "visibility", "teacher"]
+    search_fields = ["title", "description"]
 
     def get_queryset(self):
         user = self.request.user
-        qs = SchoolClass.objects.select_related("teacher__user").order_by("id")
+        qs = Course.objects.select_related("teacher__user", "approved_by").order_by(
+            "title", "id"
+        )
         if is_admin(user):
             return qs
         if user.role == User.Role.TEACHER:
             return qs.filter(teacher__user=user)
-        return qs.filter(enrollments__student__user=user).distinct()
+        return qs.filter(status=Course.Status.APPROVED).filter(
+            Q(visibility=Course.Visibility.PUBLIC)
+            | Q(
+                enrollments__student__user=user,
+                enrollments__status=Enrollment.Status.ACTIVE,
+            )
+        ).distinct()
 
     def perform_create(self, serializer):
-        serializer.save(teacher=resolve_teacher(self.request, serializer))
+        teacher = resolve_teacher(self.request, serializer)
+        if self.request.user.role == User.Role.TEACHER:
+            serializer.save(
+                teacher=teacher,
+                status=Course.Status.PENDING,
+                approved_by=None,
+            )
+            return
+        serializer.save(
+            teacher=teacher,
+            status=Course.Status.APPROVED,
+            approved_by=self.request.user,
+        )
+
+    def perform_update(self, serializer):
+        if self.request.user.role == User.Role.TEACHER:
+            serializer.save(teacher=self.request.user.teacher_profile)
+            return
+        serializer.save()
+
+    @action(detail=True, methods=["post"], permission_classes=[IsAdminRole])
+    def approve(self, request, pk=None):
+        course = self.get_object()
+        course.status = Course.Status.APPROVED
+        course.approved_by = request.user
+        course.save(update_fields=["status", "approved_by"])
+        return Response(self.get_serializer(course).data)
+
+    @action(detail=True, methods=["post"], permission_classes=[IsAdminRole])
+    def reject(self, request, pk=None):
+        course = self.get_object()
+        course.status = Course.Status.REJECTED
+        course.approved_by = None
+        course.save(update_fields=["status", "approved_by"])
+        return Response(self.get_serializer(course).data)
+
+
+class SchoolClassViewSet(CourseViewSet):
+    serializer_class = SchoolClassSerializer
+
+    def get_queryset(self):
+        user = self.request.user
+        qs = Course.objects.select_related("teacher__user").order_by("id")
+        if is_admin(user):
+            return qs
+        if user.role == User.Role.TEACHER:
+            return qs.filter(teacher__user=user)
+        return qs.filter(
+            status=Course.Status.APPROVED,
+            enrollments__student__user=user,
+            enrollments__status=Enrollment.Status.ACTIVE,
+        ).distinct()
 
 
 class EnrollmentViewSet(viewsets.ModelViewSet):
     serializer_class = EnrollmentSerializer
-    filterset_fields = ["student", "school_class", "status"]
+    filterset_fields = ["student", "course", "status"]
 
     def get_queryset(self):
-        qs = Enrollment.objects.select_related("student__user", "school_class").order_by("id")
+        qs = Enrollment.objects.select_related("student__user", "course").order_by("id")
         return student_scoped(qs, self.request.user)
 
     def get_permissions(self):
@@ -83,13 +144,25 @@ class EnrollmentViewSet(viewsets.ModelViewSet):
             return [permissions.IsAuthenticated()]
         return [IsAdminRole()]
 
+    def perform_create(self, serializer):
+        course = serializer.validated_data["course"]
+        if course.status != Course.Status.APPROVED:
+            raise ValidationError({"course": "Students can only be enrolled in approved courses."})
+        if (
+            course.course_limit
+            and course.enrollments.filter(status=Enrollment.Status.ACTIVE).count()
+            >= course.course_limit
+        ):
+            raise ValidationError({"course": "This course has reached its enrollment limit."})
+        serializer.save()
+
 
 class AttendanceViewSet(viewsets.ModelViewSet):
     serializer_class = AttendanceSerializer
-    filterset_fields = ["student", "school_class", "attendance_date", "status"]
+    filterset_fields = ["student", "course", "attendance_date", "status"]
 
     def get_queryset(self):
-        qs = Attendance.objects.select_related("student__user", "school_class").order_by(
+        qs = Attendance.objects.select_related("student__user", "course").order_by(
             "-attendance_date", "id"
         )
         return student_scoped(qs, self.request.user)
@@ -101,11 +174,11 @@ class AttendanceViewSet(viewsets.ModelViewSet):
 
     def _check_class_owner(self, serializer):
         user = self.request.user
-        school_class = serializer.validated_data.get(
-            "school_class", getattr(serializer.instance, "school_class", None)
+        course = serializer.validated_data.get(
+            "course", getattr(serializer.instance, "course", None)
         )
-        if user.role == User.Role.TEACHER and school_class.teacher.user_id != user.id:
-            raise PermissionDenied("You can only record attendance for your own classes.")
+        if user.role == User.Role.TEACHER and course.teacher.user_id != user.id:
+            raise PermissionDenied("You can only record attendance for your own courses.")
 
     def perform_create(self, serializer):
         self._check_class_owner(serializer)
@@ -119,13 +192,13 @@ class AttendanceViewSet(viewsets.ModelViewSet):
 class LiveSessionViewSet(viewsets.ModelViewSet):
     serializer_class = LiveSessionSerializer
     permission_classes = [IsTeacherOrAdminOrReadOnly]
-    filterset_fields = ["school_class", "teacher", "status"]
+    filterset_fields = ["course", "teacher", "status"]
     search_fields = ["title"]
 
     def get_queryset(self):
         user = self.request.user
         qs = LiveSession.objects.select_related(
-            "school_class", "teacher__user"
+            "course", "teacher__user"
         ).order_by("start_time")
         if is_admin(user):
             return qs
@@ -133,8 +206,8 @@ class LiveSessionViewSet(viewsets.ModelViewSet):
             return qs.filter(teacher__user=user)
         if user.role == User.Role.STUDENT:
             return qs.filter(
-                school_class__enrollments__student__user=user,
-                school_class__enrollments__status=Enrollment.Status.ACTIVE,
+                course__enrollments__student__user=user,
+                course__enrollments__status=Enrollment.Status.ACTIVE,
             ).distinct()
         return qs.none()
 
@@ -147,18 +220,20 @@ class LiveSessionViewSet(viewsets.ModelViewSet):
 
     @transaction.atomic
     def perform_create(self, serializer):
-        school_class = serializer.validated_data["school_class"]
-        teacher = school_class.teacher
+        course = serializer.validated_data["course"]
+        if course.status != Course.Status.APPROVED:
+            raise ValidationError({"course": "Only approved courses can schedule sessions."})
+        teacher = course.teacher
         requested_teacher = serializer.validated_data.get("teacher")
         if requested_teacher and requested_teacher.id != teacher.id:
             raise ValidationError({
-                "teacher": "The session teacher must be assigned to the selected class."
+                "teacher": "The session teacher must be assigned to the selected course."
             })
         if (
             self.request.user.role == User.Role.TEACHER
             and teacher.user_id != self.request.user.id
         ):
-            raise PermissionDenied("You can only schedule sessions for your own classes.")
+            raise PermissionDenied("You can only schedule sessions for your own courses.")
 
         session = serializer.save(teacher=teacher)
         if not settings.HMS_ENABLED:

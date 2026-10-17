@@ -5,7 +5,7 @@ from .models import Announcement, Notification
 
 @admin.register(Announcement)
 class AnnouncementAdmin(admin.ModelAdmin):
-    list_display = ("title", "school_class", "author", "created_at")
+    list_display = ("title", "course", "author", "created_at")
 
 
 @admin.register(Notification)

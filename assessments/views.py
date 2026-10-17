@@ -16,18 +16,18 @@ from .serializers import AssignmentSerializer, GradeSerializer, SubmissionSerial
 class AssignmentViewSet(viewsets.ModelViewSet):
     serializer_class = AssignmentSerializer
     permission_classes = [IsTeacherOrAdminOrReadOnly]
-    filterset_fields = ["school_class", "teacher"]
+    filterset_fields = ["course", "teacher"]
     search_fields = ["title", "description"]
     ordering_fields = ["due_date", "created_at"]
 
     def get_queryset(self):
-        qs = Assignment.objects.select_related("school_class", "teacher__user").order_by("-created_at")
+        qs = Assignment.objects.select_related("course", "teacher__user").order_by("-created_at")
         return class_scoped(qs, self.request.user)
 
     def perform_create(self, serializer):
         teacher = resolve_teacher(self.request, serializer)
-        school_class = serializer.validated_data["school_class"]
-        if self.request.user.role == User.Role.TEACHER and school_class.teacher_id != teacher.id:
+        course = serializer.validated_data["course"]
+        if self.request.user.role == User.Role.TEACHER and course.teacher_id != teacher.id:
             raise PermissionDenied("You can only create assignments for your own classes.")
         serializer.save(teacher=teacher)
 
@@ -39,9 +39,9 @@ class SubmissionViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         qs = Submission.objects.select_related(
-            "assignment__school_class", "student__user"
+            "assignment__course", "student__user"
         ).order_by("-submitted_at")
-        return student_scoped(qs, self.request.user, class_path="assignment__school_class")
+        return student_scoped(qs, self.request.user, class_path="assignment__course")
 
     def get_permissions(self):
         if self.action == "create":
@@ -56,7 +56,7 @@ class SubmissionViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         student = self.request.user.student_profile
         assignment = serializer.validated_data["assignment"]
-        if not assignment.school_class.enrollments.filter(student=student, status="active").exists():
+        if not assignment.course.enrollments.filter(student=student, status="active").exists():
             raise PermissionDenied("You are not enrolled in this class.")
         if Submission.objects.filter(assignment=assignment, student=student).exists():
             raise ValidationError("You have already submitted this assignment.")

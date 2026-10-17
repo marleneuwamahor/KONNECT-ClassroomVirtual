@@ -11,8 +11,8 @@ def is_admin(user):
     return user.is_superuser or user.role == User.Role.ADMIN
 
 
-def student_scoped(qs, user, student="student", class_path="school_class"):
-    """For tables that have a student column (enrollments, attendance, submissions, ...)."""
+def student_scoped(qs, user, student="student", class_path="course"):
+    """For records linked to a student and course."""
     if is_admin(user):
         return qs
     if user.role == User.Role.TEACHER:
@@ -20,8 +20,8 @@ def student_scoped(qs, user, student="student", class_path="school_class"):
     return qs.filter(**{f"{student}__user": user})
 
 
-def class_scoped(qs, user, class_path="school_class"):
-    """For tables that belong to a class (assignments, announcements, live sessions)."""
+def class_scoped(qs, user, class_path="course"):
+    """For records that belong to a course."""
     if is_admin(user):
         return qs
     if user.role == User.Role.TEACHER:
