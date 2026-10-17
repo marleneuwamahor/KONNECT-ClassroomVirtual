@@ -10,15 +10,21 @@ from accounts.scoping import class_scoped, student_scoped
 from audit.utils import log_action
 
 from .models import Assignment, Submission
-from .serializers import AssignmentSerializer, GradeSerializer, SubmissionSerializer
+from .serializers import (
+    AssignmentSerializer,
+    SubmissionGradeSerializer,
+    SubmissionSerializer,
+)
 
 
 class AssignmentViewSet(viewsets.ModelViewSet):
+    """Create and manage course exercises and quizzes, including deadlines and scores."""
+
     serializer_class = AssignmentSerializer
     permission_classes = [IsTeacherOrAdminOrReadOnly]
     filterset_fields = ["course", "teacher"]
     search_fields = ["title", "description"]
-    ordering_fields = ["due_date", "created_at"]
+    ordering_fields = ["due_at", "created_at"]
 
     def get_queryset(self):
         qs = Assignment.objects.select_related("course", "teacher__user").order_by("-created_at")
@@ -27,12 +33,30 @@ class AssignmentViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         teacher = resolve_teacher(self.request, serializer)
         course = serializer.validated_data["course"]
-        if self.request.user.role == User.Role.TEACHER and course.teacher_id != teacher.id:
-            raise PermissionDenied("You can only create assignments for your own classes.")
+        if course.status != "approved":
+            raise ValidationError({"course": "Assignments require an approved course."})
+        if course.teacher_id != teacher.id:
+            raise PermissionDenied("Assignments must use the course's assigned teacher.")
+        serializer.save(teacher=teacher)
+
+    def perform_update(self, serializer):
+        user = self.request.user
+        teacher = (
+            user.teacher_profile
+            if user.role == User.Role.TEACHER
+            else serializer.validated_data.get("teacher", serializer.instance.teacher)
+        )
+        course = serializer.validated_data.get("course", serializer.instance.course)
+        if course.status != "approved":
+            raise ValidationError({"course": "Assignments require an approved course."})
+        if course.teacher_id != teacher.id:
+            raise PermissionDenied("Assignments must use the course's assigned teacher.")
         serializer.save(teacher=teacher)
 
 
 class SubmissionViewSet(viewsets.ModelViewSet):
+    """Students submit answers or files; assignment teachers provide grades and feedback."""
+
     serializer_class = SubmissionSerializer
     filterset_fields = ["assignment", "student"]
     http_method_names = ["get", "post", "patch", "delete", "head", "options"]
@@ -51,7 +75,11 @@ class SubmissionViewSet(viewsets.ModelViewSet):
         return [permissions.IsAuthenticated()]
 
     def get_serializer_class(self):
-        return GradeSerializer if self.action == "grade" else SubmissionSerializer
+        return (
+            SubmissionGradeSerializer
+            if self.action == "grade"
+            else SubmissionSerializer
+        )
 
     def perform_create(self, serializer):
         student = self.request.user.student_profile
@@ -67,12 +95,26 @@ class SubmissionViewSet(viewsets.ModelViewSet):
         # Students may only edit their own submission; grading goes through /grade/.
         if self.request.user.role != User.Role.STUDENT:
             raise PermissionDenied("Use the grade endpoint to grade submissions.")
+        assignment = serializer.validated_data.get(
+            "assignment",
+            serializer.instance.assignment,
+        )
+        student = self.request.user.student_profile
+        if not assignment.course.enrollments.filter(
+            student=student,
+            status="active",
+        ).exists():
+            raise PermissionDenied("You are not enrolled in this class.")
         serializer.save()
 
     @action(detail=True, methods=["patch"])
     def grade(self, request, pk=None):
         submission = self.get_object()
-        serializer = GradeSerializer(submission, data=request.data, partial=True)
+        serializer = SubmissionGradeSerializer(
+            submission,
+            data=request.data,
+            partial=True,
+        )
         serializer.is_valid(raise_exception=True)
         serializer.save()
         log_action(request, "grade", "submission", submission.id)

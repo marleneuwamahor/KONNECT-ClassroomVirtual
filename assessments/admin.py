@@ -5,9 +5,9 @@ from .models import Assignment,Submission
 
 @admin.register(Assignment)
 class AssignmentAdmin(admin.ModelAdmin):
-    list_display = ("title", "course", "teacher", "due_date")
+    list_display = ("title", "course", "type", "teacher", "due_at", "max_score")
     search_fields = ("title",)
 
 @admin.register(Submission)
 class SubmissionAdmin(admin.ModelAdmin):
-    list_display = ("assignment", "student", "submitted_at", "grade")
+    list_display = ("assignment", "student", "submitted_at", "score")
