@@ -2,12 +2,19 @@ from django.urls import include, path
 from rest_framework.routers import DefaultRouter
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
-from .views import RegisterView, StudentViewSet, TeacherViewSet, UserViewSet
+from .views import (
+    AdminProfileViewSet,
+    RegisterView,
+    StudentViewSet,
+    TeacherViewSet,
+    UserViewSet,
+)
 
 router = DefaultRouter()
 router.register("users", UserViewSet, basename="user")
 router.register("students", StudentViewSet, basename="student")
 router.register("teachers", TeacherViewSet, basename="teacher")
+router.register("admin-profiles", AdminProfileViewSet, basename="admin-profile")
 
 urlpatterns = [
     path("auth/register/", RegisterView.as_view(), name="register"),

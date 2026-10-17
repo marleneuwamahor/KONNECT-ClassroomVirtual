@@ -1,7 +1,7 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 
-from .models import Student, Teacher, User
+from .models import AdminProfile, Student, Teacher, User
 
 
 @admin.register(User)
@@ -32,3 +32,9 @@ class StudentAdmin(admin.ModelAdmin):
 class TeacherAdmin(admin.ModelAdmin):
     list_display = ("employee_number", "user")
     search_fields = ("employee_number", "user__email", "user__name")
+
+
+@admin.register(AdminProfile)
+class AdminProfileAdmin(admin.ModelAdmin):
+    list_display = ("user", "admin_level")
+    search_fields = ("user__email", "user__name")
