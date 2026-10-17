@@ -15,6 +15,10 @@ python manage.py test
 ```
 
 ## API (all under /api/, JWT bearer auth)
+
+The API root (`/`) returns service information and absolute links to the API documentation:
+`/swagger/` (interactive Swagger UI), `/redoc/`, and `/api/schema/` (OpenAPI schema).
+
 - `POST auth/register/` (creates a student), `POST auth/token/`, `POST auth/token/refresh/`
 - `users/` (admin), `users/me/` (GET, PATCH with profile image upload), `students/`, `teachers/`
 - `courses/`, legacy `classes/`, `enrollments/`, `attendance/`, `live-sessions/`
