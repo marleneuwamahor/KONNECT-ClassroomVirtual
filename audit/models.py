@@ -4,6 +4,13 @@ from django.utils import timezone
 
 
 class AuditLog(models.Model):
+    admin_profile = models.ForeignKey(
+        "accounts.AdminProfile",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="audit_logs",
+    )
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         null=True,

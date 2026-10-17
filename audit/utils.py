@@ -10,8 +10,14 @@ def client_ip(request):
 
 def log_action(request, action, entity, entity_id=None):
     """Record who did what. Call this after a sensitive operation."""
+    user = request.user if request.user.is_authenticated else None
     return AuditLog.objects.create(
-        user=request.user if request.user.is_authenticated else None,
+        user=user,
+        admin_profile=(
+            user.admin_profile
+            if user and user.role == "admin"
+            else None
+        ),
         action=action,
         entity=entity,
         entity_id=entity_id,

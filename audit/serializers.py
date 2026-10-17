@@ -4,6 +4,14 @@ from .models import AuditLog
 
 
 class AuditLogSerializer(serializers.ModelSerializer):
+    admin_id = serializers.PrimaryKeyRelatedField(
+        source="admin_profile",
+        read_only=True,
+    )
+
     class Meta:
         model = AuditLog
-        fields = "__all__"
+        fields = [
+            "id", "admin_id", "admin_profile", "user", "action", "entity",
+            "entity_id", "created_at", "ip_address",
+        ]

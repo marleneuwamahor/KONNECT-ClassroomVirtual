@@ -5,7 +5,15 @@ from .models import AuditLog
 
 @admin.register(AuditLog)
 class AuditLogAdmin(admin.ModelAdmin):
-    list_display = ("created_at", "user", "action", "entity", "entity_id", "ip_address")
+    list_display = (
+        "created_at",
+        "admin_profile",
+        "user",
+        "action",
+        "entity",
+        "entity_id",
+        "ip_address",
+    )
     list_filter = ("action", "entity")
     readonly_fields = [f.name for f in AuditLog._meta.fields]
 
