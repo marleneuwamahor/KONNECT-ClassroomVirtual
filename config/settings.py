@@ -13,6 +13,11 @@ https://docs.djangoproject.com/en/6.1/ref/settings/
 from pathlib import Path
 import os
 import dj_database_url
+from dotenv import load_dotenv
+
+BASE_DIR = Path(__file__).resolve().parent.parent
+load_dotenv(BASE_DIR / ".env")
+
 # 100ms live video integration
 HMS_ACCESS_KEY = os.environ.get("HMS_ACCESS_KEY", "")
 HMS_APP_SECRET = os.environ.get("HMS_APP_SECRET", "")
@@ -33,17 +38,38 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # SECURITY WARNING: keep the secret key used in production secret!
 
 # SECURITY WARNING: don't run with debug turned on in production!
-SECRET_KEY = os.environ.get("SECRET_KEY", "django-insecure-local-development-only")
+SECRET_KEY = os.environ.get(
+    "SECRET_KEY",
+    "django-insecure-local-development-only",
+)
 
-DEBUG = os.environ.get("DEBUG", "False") == "True"
+DEBUG = os.environ.get("DEBUG", "False").lower() in ("true", "1", "yes")
 
 ALLOWED_HOSTS = ["localhost", "127.0.0.1"]
 
+extra_hosts = os.environ.get("ALLOWED_HOSTS", "")
+ALLOWED_HOSTS.extend(
+    host.strip()
+    for host in extra_hosts.split(",")
+    if host.strip()
+)
+
 render_hostname = os.environ.get("RENDER_EXTERNAL_HOSTNAME")
-if render_hostname:
+if render_hostname and render_hostname not in ALLOWED_HOSTS:
     ALLOWED_HOSTS.append(render_hostname)
 
-
+if os.environ.get("RENDER") and (
+    not os.environ.get("SECRET_KEY")
+    or not os.environ.get("DATABASE_URL")
+):
+    raise RuntimeError(
+        "SECRET_KEY and DATABASE_URL must be configured in production."
+    )
+CSRF_TRUSTED_ORIGINS = [
+    origin.strip()
+    for origin in os.environ.get("CSRF_TRUSTED_ORIGINS", "").split(",")
+    if origin.strip()
+]
 # Application definition
 
 INSTALLED_APPS = [
