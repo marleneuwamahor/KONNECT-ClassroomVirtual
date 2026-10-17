@@ -45,11 +45,13 @@ def _attendance_for_peer(session, student, joined_at):
     attendance.attendance_date = attendance_date
     attendance.auto_marked = True
     attendance.marked_at = timezone.now()
-    attendance.status = (
-        Attendance.Status.PRESENT
-        if attendance.joined_at <= session.join_deadline
-        else Attendance.Status.ABSENT
-    )
+    attendance.status = Attendance.Status.ABSENT
+    if (
+        attendance.joined_at <= session.join_deadline
+        and attendance.left_at is not None
+        and attendance.left_at >= session.attendance_cutoff
+    ):
+        attendance.status = Attendance.Status.PRESENT
     attendance.save(
         update_fields=[
             "joined_at",

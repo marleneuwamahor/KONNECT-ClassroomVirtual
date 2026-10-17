@@ -1,5 +1,7 @@
 from datetime import timedelta
+from unittest.mock import patch
 
+from django.test import override_settings
 from django.utils import timezone
 from rest_framework.test import APITestCase
 
@@ -152,6 +154,32 @@ class ERDAcademicAPITests(APITestCase):
             response.data["join_deadline"],
             (starts_at + timedelta(minutes=15)).isoformat().replace("+00:00", "Z"),
         )
+
+    @override_settings(HMS_ENABLED=True)
+    def test_join_token_is_denied_at_exact_join_deadline(self):
+        starts_at = timezone.now() + timedelta(hours=1)
+        session = LiveSession.objects.create(
+            course=self.course,
+            teacher=self.teacher,
+            title="Deadline test",
+            start_time=starts_at,
+            end_time=starts_at + timedelta(hours=1),
+            hms_room_id="room-deadline-test",
+        )
+        self.client.force_authenticate(self.teacher_user)
+
+        with patch(
+            "academics.views.timezone.now",
+            return_value=session.join_deadline,
+        ), patch("academics.views.generate_hms_auth_token") as generate_token:
+            response = self.client.post(
+                f"/api/live-sessions/{session.pk}/join/",
+                {},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, 403)
+        generate_token.assert_not_called()
 
     def test_teacher_can_flag_only_an_active_student_in_own_course(self):
         self.client.force_authenticate(self.teacher_user)
