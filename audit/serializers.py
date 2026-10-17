@@ -13,5 +13,5 @@ class AuditLogSerializer(serializers.ModelSerializer):
         model = AuditLog
         fields = [
             "id", "admin_id", "admin_profile", "user", "action", "entity",
-            "entity_id", "created_at", "ip_address",
+            "entity_id", "entity_key", "created_at", "ip_address",
         ]

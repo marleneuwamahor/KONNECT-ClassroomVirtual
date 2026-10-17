@@ -16,6 +16,7 @@ from rest_framework.response import Response
 from accounts.models import User
 from accounts.permissions import IsAdminRole, IsTeacherOrAdmin, IsTeacherOrAdminOrReadOnly
 from accounts.scoping import is_admin, student_scoped
+from audit.mixins import AuditAdminWritesMixin
 from .models import Attendance, Course, Enrollment, Exam, Grade, LiveSession, StudentFlag
 from .serializers import (
     AttendanceSerializer,
@@ -56,7 +57,7 @@ def resolve_teacher(request, serializer):
     return teacher
 
 
-class CourseViewSet(viewsets.ModelViewSet):
+class CourseViewSet(AuditAdminWritesMixin, viewsets.ModelViewSet):
     """Browse courses, create pending teacher courses and administer approvals."""
 
     lookup_value_regex = r"\d+"
@@ -139,7 +140,7 @@ class SchoolClassViewSet(CourseViewSet):
         ).distinct()
 
 
-class ExamViewSet(viewsets.ModelViewSet):
+class ExamViewSet(AuditAdminWritesMixin, viewsets.ModelViewSet):
     """Schedule course exams; students can read exams for their active courses."""
 
     serializer_class = ExamSerializer
@@ -189,7 +190,7 @@ class ExamViewSet(viewsets.ModelViewSet):
         serializer.save()
 
 
-class GradeViewSet(viewsets.ModelViewSet):
+class GradeViewSet(AuditAdminWritesMixin, viewsets.ModelViewSet):
     """Record exam scores; students can read only their own grades."""
 
     serializer_class = ExamGradeSerializer
@@ -250,7 +251,7 @@ class GradeViewSet(viewsets.ModelViewSet):
         serializer.save(graded_by=teacher)
 
 
-class StudentFlagViewSet(viewsets.ModelViewSet):
+class StudentFlagViewSet(AuditAdminWritesMixin, viewsets.ModelViewSet):
     """Flag a student in a course; teachers may flag their own active enrollees."""
 
     serializer_class = StudentFlagSerializer
@@ -306,7 +307,7 @@ class StudentFlagViewSet(viewsets.ModelViewSet):
         serializer.save(flagged_by=teacher)
 
 
-class EnrollmentViewSet(viewsets.ModelViewSet):
+class EnrollmentViewSet(AuditAdminWritesMixin, viewsets.ModelViewSet):
     """Admin-managed student-course enrollments with course approval and capacity checks."""
 
     serializer_class = EnrollmentSerializer
@@ -334,7 +335,7 @@ class EnrollmentViewSet(viewsets.ModelViewSet):
         serializer.save()
 
 
-class AttendanceViewSet(viewsets.ModelViewSet):
+class AttendanceViewSet(AuditAdminWritesMixin, viewsets.ModelViewSet):
     """Read attendance by role and record manual attendance for teacher-owned courses."""
 
     serializer_class = AttendanceSerializer
@@ -378,7 +379,7 @@ class AttendanceViewSet(viewsets.ModelViewSet):
         serializer.save()
 
 
-class LiveSessionViewSet(viewsets.ModelViewSet):
+class LiveSessionViewSet(AuditAdminWritesMixin, viewsets.ModelViewSet):
     """Schedule and join course sessions; 100ms tokens and webhook routes are server-managed."""
 
     serializer_class = LiveSessionSerializer
@@ -457,7 +458,7 @@ class LiveSessionViewSet(viewsets.ModelViewSet):
 
         if session.status in (LiveSession.Status.ENDED, LiveSession.Status.CANCELLED):
             raise ValidationError({"detail": "This live session is no longer available."})
-        if now > session.join_deadline:
+        if now >= session.join_deadline:
             raise PermissionDenied("The live-session join deadline has passed.")
         if not settings.HMS_ENABLED:
             raise HMSUnavailable("100ms live sessions are not enabled.")

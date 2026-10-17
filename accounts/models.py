@@ -37,7 +37,7 @@ class User(AbstractBaseUser, PermissionsMixin):
     is_staff = models.BooleanField(default=False)
     created_at = models.DateTimeField(default=timezone.now)
     managed_by = models.ForeignKey(
-        "self",
+        "AdminProfile",
         null=True,
         blank=True,
         on_delete=models.SET_NULL,

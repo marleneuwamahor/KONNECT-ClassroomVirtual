@@ -5,13 +5,14 @@ from rest_framework.response import Response
 
 from accounts.permissions import IsAdminRole
 from accounts.scoping import is_admin
+from audit.mixins import AuditAdminWritesMixin
 from audit.utils import log_action
 
 from .models import Payment
 from .serializers import PaymentSerializer
 
 
-class PaymentViewSet(viewsets.ModelViewSet):
+class PaymentViewSet(AuditAdminWritesMixin, viewsets.ModelViewSet):
     """Admin-managed student payments; authenticated students can read their own records."""
 
     serializer_class = PaymentSerializer

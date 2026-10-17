@@ -7,6 +7,7 @@ from academics.views import resolve_teacher
 from accounts.models import User
 from accounts.permissions import IsStudentRole, IsTeacherOrAdmin, IsTeacherOrAdminOrReadOnly
 from accounts.scoping import class_scoped, student_scoped
+from audit.mixins import AuditAdminWritesMixin
 from audit.utils import log_action
 
 from .models import Assignment, Submission
@@ -17,7 +18,7 @@ from .serializers import (
 )
 
 
-class AssignmentViewSet(viewsets.ModelViewSet):
+class AssignmentViewSet(AuditAdminWritesMixin, viewsets.ModelViewSet):
     """Create and manage course exercises and quizzes, including deadlines and scores."""
 
     serializer_class = AssignmentSerializer
@@ -54,7 +55,7 @@ class AssignmentViewSet(viewsets.ModelViewSet):
         serializer.save(teacher=teacher)
 
 
-class SubmissionViewSet(viewsets.ModelViewSet):
+class SubmissionViewSet(AuditAdminWritesMixin, viewsets.ModelViewSet):
     """Students submit answers or files; assignment teachers provide grades and feedback."""
 
     serializer_class = SubmissionSerializer

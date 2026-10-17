@@ -3,6 +3,7 @@ from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.response import Response
 
+from audit.mixins import AuditAdminWritesMixin
 from accounts.models import User
 from accounts.permissions import IsAdminRole, IsTeacherOrAdminOrReadOnly
 from accounts.scoping import class_scoped
@@ -15,7 +16,7 @@ from .serializers import (
 )
 
 
-class AnnouncementViewSet(viewsets.ModelViewSet):
+class AnnouncementViewSet(AuditAdminWritesMixin, viewsets.ModelViewSet):
     """Course announcements; teachers can write only to courses they teach."""
 
     serializer_class = AnnouncementSerializer
@@ -46,6 +47,7 @@ class AnnouncementViewSet(viewsets.ModelViewSet):
 
 
 class NotificationViewSet(
+    AuditAdminWritesMixin,
     mixins.ListModelMixin,
     mixins.RetrieveModelMixin,
     mixins.CreateModelMixin,
@@ -80,7 +82,7 @@ class NotificationViewSet(
         return Response({"updated": updated})
 
 
-class SystemSettingViewSet(viewsets.ModelViewSet):
+class SystemSettingViewSet(AuditAdminWritesMixin, viewsets.ModelViewSet):
     """Admin-only key/value settings; every write records the acting admin profile."""
 
     queryset = SystemSetting.objects.select_related("updated_by__user").order_by("key")

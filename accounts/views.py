@@ -10,6 +10,7 @@ from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.response import Response
 from drf_spectacular.utils import extend_schema
 
+from audit.mixins import AuditAdminWritesMixin
 from .models import AdminProfile, Student, Teacher, User
 from .permissions import IsAdminRole, IsTeacherOrAdmin
 from .serializers import (
@@ -28,6 +29,7 @@ from .services.profile_image_storage import (
     ProfileImageStorageError,
     upload_profile_image,
 )
+from audit.utils import log_action
 
 logger = logging.getLogger(__name__)
 
@@ -47,11 +49,16 @@ class RegisterView(generics.CreateAPIView):
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        user = serializer.save()
+        with transaction.atomic():
+            user = serializer.save()
+            if getattr(request.user, "role", None) == User.Role.ADMIN:
+                user.managed_by = request.user.admin_profile
+                user.save(update_fields=["managed_by"])
+                log_action(request, "register", "user", user.pk)
         return Response(MeSerializer(user, context={"request": request}).data, status=201)
 
 
-class UserViewSet(viewsets.ModelViewSet):
+class UserViewSet(AuditAdminWritesMixin, viewsets.ModelViewSet):
     """Admin user management plus the authenticated user's own profile endpoint."""
 
     queryset = User.objects.all().order_by("id")
@@ -62,7 +69,7 @@ class UserViewSet(viewsets.ModelViewSet):
     search_fields = ["name", "email"]
 
     def perform_create(self, serializer):
-        serializer.save(managed_by=self.request.user)
+        serializer.save(managed_by=self.request.user.admin_profile)
 
     @action(
         detail=False,
@@ -137,7 +144,7 @@ class UserViewSet(viewsets.ModelViewSet):
         )
 
 
-class StudentViewSet(viewsets.ModelViewSet):
+class StudentViewSet(AuditAdminWritesMixin, viewsets.ModelViewSet):
     """Manage student profiles; students may read or edit only their own profile."""
 
     serializer_class = StudentSerializer
@@ -182,7 +189,7 @@ class StudentViewSet(viewsets.ModelViewSet):
         return Response(self.get_serializer(student).data)
 
 
-class TeacherViewSet(viewsets.ModelViewSet):
+class TeacherViewSet(AuditAdminWritesMixin, viewsets.ModelViewSet):
     """Teacher directory, private profile management and admin verification workflow."""
 
     serializer_class = TeacherSerializer
@@ -274,6 +281,7 @@ class TeacherViewSet(viewsets.ModelViewSet):
 
 
 class AdminProfileViewSet(
+    AuditAdminWritesMixin,
     mixins.ListModelMixin,
     mixins.RetrieveModelMixin,
     mixins.UpdateModelMixin,

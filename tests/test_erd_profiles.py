@@ -7,6 +7,7 @@ from rest_framework.test import APITestCase
 
 from accounts.services.profile_image_storage import ProfileImageStorageError
 from accounts.models import AdminProfile, Student, Teacher, User
+from audit.models import AuditLog
 
 
 class ERDProfileAPITests(APITestCase):
@@ -56,6 +57,32 @@ class ERDProfileAPITests(APITestCase):
             "STU-0002",
         )
 
+    def test_admin_registration_tracks_manager_and_audit_entry(self):
+        self.client.force_authenticate(self.admin)
+
+        response = self.client.post(
+            "/api/auth/register/",
+            {
+                "full_name": "Admin-created student",
+                "email": "admin-created@example.com",
+                "password": "Str0ng-pass-123",
+                "username": "STU-ADMIN-1",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        created_user = User.objects.get(email="admin-created@example.com")
+        self.assertEqual(created_user.managed_by, self.admin_profile)
+        self.assertTrue(
+            AuditLog.objects.filter(
+                admin_profile=self.admin_profile,
+                entity="user",
+                entity_id=created_user.pk,
+                action="register",
+            ).exists()
+        )
+
     def test_admin_user_api_accepts_full_name_and_status_and_tracks_manager(self):
         self.client.force_authenticate(self.admin)
         response = self.client.post(
@@ -74,7 +101,16 @@ class ERDProfileAPITests(APITestCase):
         self.assertEqual(response.data["status"], "inactive")
         managed_user = User.objects.get(email="managed@example.com")
         self.assertFalse(managed_user.is_active)
-        self.assertEqual(managed_user.managed_by, self.admin)
+        self.assertEqual(managed_user.managed_by, self.admin_profile)
+        self.assertEqual(
+            AuditLog.objects.filter(
+                admin_profile=self.admin_profile,
+                entity="user",
+                entity_id=managed_user.pk,
+                action="create",
+            ).count(),
+            1,
+        )
 
     def test_student_can_read_and_update_own_profile(self):
         self.client.force_authenticate(self.student_user)
@@ -193,6 +229,14 @@ class ERDProfileAPITests(APITestCase):
             Teacher.VerificationStatus.VERIFIED,
         )
         self.assertEqual(self.teacher.verified_by, self.admin_profile)
+        self.assertTrue(
+            AuditLog.objects.filter(
+                admin_profile=self.admin_profile,
+                entity="teacher",
+                entity_id=self.teacher.pk,
+                action="verify",
+            ).exists()
+        )
 
         self.client.force_authenticate(self.student_user)
         response = self.client.get("/api/teachers/")

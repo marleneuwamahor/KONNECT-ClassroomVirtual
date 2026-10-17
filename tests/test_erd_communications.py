@@ -2,6 +2,7 @@ from rest_framework.test import APITestCase
 
 from accounts.models import AdminProfile, Student, Teacher, User
 from academics.models import Course
+from audit.models import AuditLog
 from communications.models import Announcement, Notification, SystemSetting
 
 
@@ -58,6 +59,21 @@ class ERDCommunicationAPITests(APITestCase):
         self.assertEqual(response.status_code, 200)
         setting.refresh_from_db()
         self.assertEqual(setting.value, "false")
+        self.assertEqual(
+            AuditLog.objects.filter(
+                admin_profile=self.admin.admin_profile,
+                entity="systemsetting",
+            ).count(),
+            2,
+        )
+        self.assertEqual(
+            AuditLog.objects.filter(
+                admin_profile=self.admin.admin_profile,
+                entity="systemsetting",
+                entity_key="registration_open",
+            ).count(),
+            2,
+        )
 
         self.client.force_authenticate(self.student_user)
         self.assertEqual(self.client.get("/api/system-settings/").status_code, 403)

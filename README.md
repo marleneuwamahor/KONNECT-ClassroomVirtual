@@ -48,7 +48,7 @@ integer primary keys to preserve existing data; they are not UUIDs as shown in t
   access/refresh tokens and refresh an access token.
 - `/api/users/` — admin-only user CRUD. `full_name` and `status` (`active`/`inactive`) are the
   ERD-facing names; legacy `name` and `is_active` remain in responses. New users record the
-  managing admin in `managed_by`. Passwords are write-only and stored hashed.
+  managing admin profile in `managed_by`. Passwords are write-only and stored hashed.
 - `GET/PATCH /api/users/me/` — any authenticated user reads or updates their own name, profile
   image URL, phone, and bio. Email, role, and account status cannot be changed here.
 - `POST /api/users/me/profile-image/` — any authenticated user uploads their profile photo as
@@ -215,8 +215,9 @@ Example:
 ### Audit logs and status codes
 
 - `GET /api/audit-logs/` and `GET /api/audit-logs/{id}/` — admin-only, read-only audit history;
-  `admin_id` identifies an administrator actor when applicable, and legacy `user` attribution is
-  preserved.
+  `admin_id` identifies an administrator actor when applicable, `entity_key` identifies records
+  with string keys, and legacy `user` attribution is preserved. Successful administrator API
+  writes and Django admin create, update, and delete operations are recorded.
 - Protected routes return `401` for missing/invalid authentication and `403` when an authenticated
   caller lacks permission. Invalid fields or workflow rules return `400`, inaccessible/nonexistent
   records return `404`, and unexpected server/integration failures return `5xx`.
@@ -225,9 +226,12 @@ Example:
 
 ## Live sessions and 100ms
 
-Live sessions belong to an approved course and use that course's assigned teacher. Only the assigned teacher,
-an enrolled student with an active enrollment, or an admin can retrieve/join a session. Session
-responses include the server-managed `hms_room_id`, `join_deadline` (start time + 15 minutes), and
+Each scheduled live session is one row and one 100ms room. Each participating student gets a
+separate attendance row linked to that session; this avoids duplicating the shared room and schedule
+per student. Live sessions belong to an approved course and use that course's assigned teacher.
+The assigned teacher, an enrolled student with an active enrollment, or an admin can retrieve/join
+a session. Session responses include the server-managed `hms_room_id`,
+`join_deadline` (start time + 15 minutes), and
 `attendance_cutoff` (end time - 15 minutes). Do not send `hms_room_id` or 100ms credentials from the
 client when creating a session.
 

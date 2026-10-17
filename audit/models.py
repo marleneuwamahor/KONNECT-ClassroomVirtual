@@ -21,6 +21,7 @@ class AuditLog(models.Model):
     action = models.CharField(max_length=100)
     entity = models.CharField(max_length=100)
     entity_id = models.PositiveIntegerField(null=True, blank=True)
+    entity_key = models.CharField(max_length=255, blank=True)
     created_at = models.DateTimeField(default=timezone.now)
     ip_address = models.GenericIPAddressField(null=True, blank=True)
 

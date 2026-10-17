@@ -12,4 +12,10 @@ class AuditLogViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = AuditLog.objects.select_related("user", "admin_profile")
     serializer_class = AuditLogSerializer
     permission_classes = [IsAdminRole]
-    filterset_fields = ["user", "admin_profile", "action", "entity"]
+    filterset_fields = [
+        "user",
+        "admin_profile",
+        "action",
+        "entity",
+        "entity_key",
+    ]

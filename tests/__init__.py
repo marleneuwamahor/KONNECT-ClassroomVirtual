@@ -101,6 +101,14 @@ class AcademicsTests(BaseAPITest):
         course.refresh_from_db()
         self.assertEqual(course.status, Course.Status.APPROVED)
         self.assertEqual(course.approved_by, AdminProfile.objects.get(user=self.admin))
+        self.assertTrue(
+            AuditLog.objects.filter(
+                admin_profile=self.admin.admin_profile,
+                entity="course",
+                entity_id=course.pk,
+                action="approve",
+            ).exists()
+        )
 
         self.login(self.s_user)
         self.assertIn(
@@ -218,7 +226,15 @@ class CommunicationsBillingTests(BaseAPITest):
         res = self.client.post("/api/payments/", body)
         self.assertEqual(res.status_code, 201)
         pid = res.data["id"]
+        self.assertEqual(
+            AuditLog.objects.filter(entity="payment", entity_id=pid).count(),
+            1,
+        )
         self.assertEqual(self.client.post(f"/api/payments/{pid}/mark-paid/").data["status"], "paid")
+        self.assertEqual(
+            AuditLog.objects.filter(entity="payment", entity_id=pid).count(),
+            2,
+        )
         self.client.post("/api/payments/", {"student": self.student2.id, "amount": "5", "transaction_ref": "T2"})
         self.login(self.s_user)
         self.assertEqual(self.client.get("/api/payments/").data["count"], 1)

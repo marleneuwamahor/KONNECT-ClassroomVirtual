@@ -8,10 +8,10 @@ def client_ip(request):
     return request.META.get("REMOTE_ADDR")
 
 
-def log_action(request, action, entity, entity_id=None):
+def log_action(request, action, entity, entity_id=None, entity_key=""):
     """Record who did what. Call this after a sensitive operation."""
     user = request.user if request.user.is_authenticated else None
-    return AuditLog.objects.create(
+    audit_log = AuditLog.objects.create(
         user=user,
         admin_profile=(
             user.admin_profile
@@ -21,5 +21,8 @@ def log_action(request, action, entity, entity_id=None):
         action=action,
         entity=entity,
         entity_id=entity_id,
+        entity_key=entity_key,
         ip_address=client_ip(request),
     )
+    request._audit_logged = True
+    return audit_log
