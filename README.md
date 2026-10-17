@@ -20,12 +20,75 @@ The API root (`/`) returns service information and absolute links to the API doc
 `/swagger/` (interactive Swagger UI), `/redoc/`, and `/api/schema/` (OpenAPI schema).
 
 - `POST auth/register/` (creates a student), `POST auth/token/`, `POST auth/token/refresh/`
-- `users/` (admin), `users/me/` (GET, PATCH with profile image upload), `students/`, `teachers/`
+- `users/` (admin), `users/me/`, `students/`, `students/me/`, `teachers/`, `teachers/me/`,
+  `admin-profiles/`, `teachers/{id}/verify/`, `teachers/{id}/reject/`
 - `courses/`, legacy `classes/`, `enrollments/`, `attendance/`, `live-sessions/`
-- `assignments/`, `submissions/`, `submissions/{id}/grade/`
-- `announcements/`, `notifications/`, `notifications/{id}/read/`, `notifications/read-all/`
+- `assignments/`, `submissions/`, `submissions/{id}/grade/`, `exams/`, `grades/`,
+  `student-flags/`
+- `announcements/`, `notifications/`, `notifications/{id}/read/`, `notifications/read-all/`,
+  `system-settings/`
 - `payments/`, `payments/{id}/mark-paid/`
 - `audit-logs/` (admin, read-only)
+
+The generated OpenAPI schema and Swagger UI include descriptions for every API operation. APIs
+use JSON and return paginated collections unless described otherwise, and require
+`Authorization: Bearer <access-token>` unless described as public below. Profile and document
+image fields are URLs, not binary uploads. IDs remain
+integer primary keys to preserve existing data; they are not UUIDs as shown in the proposed ERD.
+
+## Accounts and profiles
+
+### Users and sign-up
+
+- `POST /api/auth/register/` — public student sign-up. Send `full_name`, `email`, `password`, and
+  `username`; optional `date_of_birth` is accepted. Legacy clients may send `name` and
+  `student_number` instead. Returns `201` with the created user's profile. Duplicate email or
+  username and invalid passwords return `400`.
+- `POST /api/auth/token/` and `POST /api/auth/token/refresh/` — exchange credentials for JWT
+  access/refresh tokens and refresh an access token.
+- `/api/users/` — admin-only user CRUD. `full_name` and `status` (`active`/`inactive`) are the
+  ERD-facing names; legacy `name` and `is_active` remain in responses. New users record the
+  managing admin in `managed_by`. Passwords are write-only and stored hashed.
+- `GET/PATCH /api/users/me/` — any authenticated user reads or updates their own name, profile
+  image URL, phone, and bio. Email, role, and account status cannot be changed here.
+
+Example student registration:
+
+```json
+{
+  "full_name": "Amina Example",
+  "email": "amina@example.com",
+  "password": "Use-a-strong-password-123",
+  "username": "STU-0001",
+  "date_of_birth": "2012-05-20"
+}
+```
+
+### Student profiles
+
+- `/api/students/` — administrators manage profiles; teachers and admins can list/retrieve
+  profiles, while students are restricted to their own profile.
+- `GET/PATCH /api/students/me/` — students read or update their own `profile_picture_url`, `bio`,
+  `date_of_birth`, and `grade_level`. `username` is the canonical profile identifier;
+  `student_number` remains in responses for backwards compatibility.
+
+### Teacher profiles and verification
+
+- `/api/teachers/` — admins manage full profiles. Students see only verified teacher directory
+  fields; a teacher can access their own directory entry. Private legal/document fields are not
+  included in the student directory. The legacy `employee_number` field is optional for new
+  profiles because it is not part of the ERD.
+- `GET/PATCH /api/teachers/me/` — teachers read/update their own professional and document URL
+  fields. Verification state and verifier are read-only to teachers.
+- `POST /api/teachers/{id}/verify/` and `POST /api/teachers/{id}/reject/` — admin-only actions.
+  They return the updated profile and record/clear `verified_by`.
+- `GET/PATCH /api/admin-profiles/` and `/api/admin-profiles/{id}/` — administrator-only profile
+  access. Profiles are created automatically with admin accounts; the API can update
+  `profile_picture_url` and `admin_level`.
+
+CV and certificate fields store URLs; this backend does not provide file storage or upload
+endpoints. The ERD's 10 MB and file-type limits must be enforced by the configured upload/storage
+service before its URL is saved.
 
 ## Courses and approval
 
@@ -75,6 +138,72 @@ Invoke-RestMethod -Method Post -Uri "$apiBase/api/courses/" -Headers $headers -C
 `/api/classes/` remains available for existing clients. It uses the legacy `name` field and keeps
 the prior student visibility behavior; new clients should use `/api/courses/`.
 
+### Exams and grades
+
+- `/api/exams/` — teachers create/update/delete exams only for their own approved courses;
+  authenticated students can list/retrieve exams for their active courses; admins can manage all
+  exams. Send `course`, `title`, `exam_date`, positive `duration_minutes`, and positive
+  `total_marks`.
+- `/api/grades/` — teachers record/update/delete results for active students in their own course;
+  admins can manage results; students can list/retrieve only their own results. Send `exam`,
+  `student`, `score`, and optional `grade_letter`/`teacher_feedback`. Scores cannot exceed the
+  exam's `total_marks`; grade letters are entered by the teacher and are not automatically
+  converted from scores. A student can receive only one grade per exam.
+
+Example:
+
+```json
+{
+  "exam": 4,
+  "student": 12,
+  "score": "38.50",
+  "grade_letter": "A",
+  "teacher_feedback": "Strong work."
+}
+```
+
+### Student flags
+
+- `/api/student-flags/` — teachers can create/update/delete flags only for actively enrolled
+  students in their own courses; admins can manage all flags. Authenticated students can read
+  only flags about themselves. Create body: `student`, `course`, `reason`. The API sets
+  `flagged_by` from the course's teacher so callers cannot impersonate another teacher.
+
+### Assignments and submissions
+
+- `/api/assignments/` — teachers create/manage `quiz` or `exercise` records for their own
+  approved courses; students read assignments for enrolled courses. Fields include `course`,
+  `type`, `title`, `description`, `due_at`, and positive `max_score`. Legacy `school_class` and
+  `due_date` fields remain available.
+- `/api/submissions/` — students submit JSON `answers` and/or `file_url` for an assignment while
+  actively enrolled. A student can submit once per assignment and can read only their own work;
+  course teachers and admins can read within their scope.
+- `PATCH /api/submissions/{id}/grade/` — the course teacher or admin sets `score` and
+  `teacher_feedback`. The score cannot exceed assignment `max_score`. Legacy `grade` and
+  `feedback` input/output aliases are kept.
+
+### Announcements, notifications and settings
+
+- `/api/announcements/` — teachers post to their own courses; admins can manage announcements.
+  The response includes both the author user and related teacher profile.
+- `/api/notifications/` — users can list, retrieve and mark their own notifications read; admins
+  create notifications with `user`, `title`, `message`, and optional string `type` (default
+  `general`). `POST /api/notifications/{id}/read/` marks one notification read;
+  `POST /api/notifications/read-all/` marks all of the caller's notifications read.
+- `/api/system-settings/` — admin-only CRUD for key/value settings. Each create/update records the
+  acting `updated_by` admin profile. Settings are not public.
+
+### Audit logs and status codes
+
+- `GET /api/audit-logs/` and `GET /api/audit-logs/{id}/` — admin-only, read-only audit history;
+  `admin_id` identifies an administrator actor when applicable, and legacy `user` attribution is
+  preserved.
+- Protected routes return `401` for missing/invalid authentication and `403` when an authenticated
+  caller lacks permission. Invalid fields or workflow rules return `400`, inaccessible/nonexistent
+  records return `404`, and unexpected server/integration failures return `5xx`.
+- To test an endpoint, sign in through `/api/auth/token/`, then use Swagger's **Authorize** button
+  with the access token. Swagger sends `Authorization: Bearer <access-token>` for protected calls.
+
 ## Live sessions and 100ms
 
 Live sessions belong to an approved course and use that course's assigned teacher. Only the assigned teacher,
@@ -99,14 +228,16 @@ is assigned from the course and cannot point to a different teacher.
 
 ```json
 {
-  "school_class": 12,
+  "course": 12,
   "title": "Science lesson",
-  "start_time": "2026-10-20T09:00:00Z",
-  "end_time": "2026-10-20T10:00:00Z"
+  "starts_at": "2026-10-20T09:00:00Z",
+  "ends_at": "2026-10-20T10:00:00Z"
 }
 ```
 
-The response includes `hms_room_id`, `join_deadline`, and `attendance_cutoff`. If the room cannot
+The response includes `hms_room_id`, `join_deadline`, `attendance_cutoff`, and `join_link`.
+Legacy `school_class`, `start_time`, `end_time`, and `meeting_url` names remain accepted.
+If the room cannot
 be created, the API returns `503 Service Unavailable` and does not create the local session.
 
 ### Join a session

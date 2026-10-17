@@ -12,6 +12,8 @@ from .serializers import PaymentSerializer
 
 
 class PaymentViewSet(viewsets.ModelViewSet):
+    """Admin-managed student payments; authenticated students can read their own records."""
+
     serializer_class = PaymentSerializer
     filterset_fields = ["student", "status"]
     search_fields = ["transaction_ref"]
@@ -32,6 +34,7 @@ class PaymentViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=["post"], url_path="mark-paid")
     def mark_paid(self, request, pk=None):
+        """Mark a payment as paid, timestamp the change and write an audit event."""
         payment = self.get_object()
         payment.status = Payment.Status.PAID
         payment.paid_at = timezone.now()
