@@ -1,5 +1,11 @@
+from io import BytesIO
+from unittest.mock import patch
+
+from django.core.files.uploadedfile import SimpleUploadedFile
+from PIL import Image
 from rest_framework.test import APITestCase
 
+from accounts.services.profile_image_storage import ProfileImageStorageError
 from accounts.models import AdminProfile, Student, Teacher, User
 
 
@@ -85,6 +91,82 @@ class ERDProfileAPITests(APITestCase):
         self.student.refresh_from_db()
         self.assertEqual(self.student.bio, "Learner")
         self.assertEqual(self.student.grade_level, "Grade 8")
+
+    @patch(
+        "accounts.views.upload_profile_image",
+        return_value="https://res.cloudinary.com/example/profile.png",
+    )
+    def test_profile_image_upload_updates_user_and_student_profile(self, upload):
+        image_bytes = BytesIO()
+        Image.new("RGB", (2, 2), color="blue").save(image_bytes, format="PNG")
+        image = SimpleUploadedFile(
+            "profile.png",
+            image_bytes.getvalue(),
+            content_type="image/png",
+        )
+        self.client.force_authenticate(self.student_user)
+
+        response = self.client.post(
+            "/api/users/me/profile-image/",
+            {"image": image},
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertEqual(
+            response.data["profile_image"],
+            "https://res.cloudinary.com/example/profile.png",
+        )
+        upload.assert_called_once()
+        self.student_user.refresh_from_db()
+        self.student.refresh_from_db()
+        self.assertEqual(
+            self.student_user.profile_image,
+            "https://res.cloudinary.com/example/profile.png",
+        )
+        self.assertEqual(
+            self.student.profile_picture_url,
+            "https://res.cloudinary.com/example/profile.png",
+        )
+
+    def test_profile_image_upload_reports_unavailable_storage(self):
+        image_bytes = BytesIO()
+        Image.new("RGB", (2, 2), color="green").save(image_bytes, format="PNG")
+        image = SimpleUploadedFile(
+            "profile.png",
+            image_bytes.getvalue(),
+            content_type="image/png",
+        )
+        self.client.force_authenticate(self.student_user)
+
+        with patch(
+            "accounts.views.upload_profile_image",
+            side_effect=ProfileImageStorageError,
+        ):
+            response = self.client.post(
+                "/api/users/me/profile-image/",
+                {"image": image},
+                format="multipart",
+            )
+
+        self.assertEqual(response.status_code, 503)
+
+    def test_profile_image_upload_rejects_non_image_file(self):
+        self.client.force_authenticate(self.student_user)
+
+        response = self.client.post(
+            "/api/users/me/profile-image/",
+            {
+                "image": SimpleUploadedFile(
+                    "not-an-image.txt",
+                    b"not an image",
+                    content_type="text/plain",
+                )
+            },
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, 400)
 
     def test_teacher_profile_is_private_until_admin_verifies_it(self):
         self.client.force_authenticate(self.student_user)

@@ -18,6 +18,26 @@ class UserStatusField(serializers.Field):
         return data == "active"
 
 
+class ProfileImageUploadSerializer(serializers.Serializer):
+    """Validate the image file accepted by the profile-photo upload endpoint."""
+
+    image = serializers.ImageField()
+
+    def validate_image(self, image):
+        if image.size > 5 * 1024 * 1024:
+            raise serializers.ValidationError("Image must be 5 MB or smaller.")
+        if image.image.format not in {"JPEG", "PNG", "WEBP"}:
+            raise serializers.ValidationError(
+                "Upload a JPEG, PNG, or WebP image."
+            )
+        return image
+
+
+class ProfileImageUploadResponseSerializer(serializers.Serializer):
+    profile_image = serializers.URLField()
+    profile_picture_url = serializers.URLField()
+
+
 class UserSerializer(serializers.ModelSerializer):
     """Full user, used by admins."""
 

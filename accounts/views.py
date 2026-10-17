@@ -1,15 +1,22 @@
+import logging
+
+from django.core.exceptions import ImproperlyConfigured
+from django.db import transaction
 from django.shortcuts import get_object_or_404
-from rest_framework import generics, mixins, permissions, viewsets
+from rest_framework import generics, mixins, permissions, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import PermissionDenied
+from rest_framework.exceptions import APIException, PermissionDenied
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.response import Response
+from drf_spectacular.utils import extend_schema
 
 from .models import AdminProfile, Student, Teacher, User
 from .permissions import IsAdminRole, IsTeacherOrAdmin
 from .serializers import (
     AdminProfileSerializer,
     MeSerializer,
+    ProfileImageUploadResponseSerializer,
+    ProfileImageUploadSerializer,
     RegisterSerializer,
     StudentSerializer,
     StudentProfileSerializer,
@@ -17,6 +24,18 @@ from .serializers import (
     TeacherSerializer,
     UserSerializer,
 )
+from .services.profile_image_storage import (
+    ProfileImageStorageError,
+    upload_profile_image,
+)
+
+logger = logging.getLogger(__name__)
+
+
+class ProfileImageStorageUnavailable(APIException):
+    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    default_detail = "Profile image storage is unavailable. Try again later."
+    default_code = "profile_image_storage_unavailable"
 
 
 class RegisterView(generics.CreateAPIView):
@@ -61,6 +80,61 @@ class UserViewSet(viewsets.ModelViewSet):
             serializer.save()
             return Response(serializer.data)
         return Response(MeSerializer(request.user, context={"request": request}).data)
+
+    @extend_schema(
+        request=ProfileImageUploadSerializer,
+        responses={200: ProfileImageUploadResponseSerializer},
+        description=(
+            "Upload a JPEG, PNG, or WebP profile image (maximum 5 MB) as multipart "
+            "form data. The image is stored in Cloudinary and its URL is applied to "
+            "the signed-in user's profile and role-specific profile."
+        ),
+    )
+    @action(
+        detail=False,
+        methods=["post"],
+        url_path="me/profile-image",
+        permission_classes=[permissions.IsAuthenticated],
+        parser_classes=[MultiPartParser],
+    )
+    def upload_profile_image(self, request):
+        """Upload and save the authenticated user's profile photo."""
+        serializer = ProfileImageUploadSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            image_url = upload_profile_image(
+                serializer.validated_data["image"],
+                user_id=request.user.pk,
+            )
+        except (ProfileImageStorageError, ImproperlyConfigured) as exc:
+            logger.error(
+                "Profile image upload failed for user %s (%s).",
+                request.user.pk,
+                type(exc).__name__,
+            )
+            raise ProfileImageStorageUnavailable() from exc
+
+        with transaction.atomic():
+            User.objects.filter(pk=request.user.pk).update(profile_image=image_url)
+            if request.user.role == User.Role.STUDENT:
+                Student.objects.filter(user=request.user).update(
+                    profile_picture_url=image_url
+                )
+            elif request.user.role == User.Role.TEACHER:
+                Teacher.objects.filter(user=request.user).update(
+                    profile_picture_url=image_url
+                )
+            elif request.user.role == User.Role.ADMIN:
+                AdminProfile.objects.filter(user=request.user).update(
+                    profile_picture_url=image_url
+                )
+
+        return Response(
+            {
+                "profile_image": image_url,
+                "profile_picture_url": image_url,
+            }
+        )
 
 
 class StudentViewSet(viewsets.ModelViewSet):

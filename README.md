@@ -20,7 +20,7 @@ The API root (`/`) returns service information and absolute links to the API doc
 `/swagger/` (interactive Swagger UI), `/redoc/`, and `/api/schema/` (OpenAPI schema).
 
 - `POST auth/register/` (creates a student), `POST auth/token/`, `POST auth/token/refresh/`
-- `users/` (admin), `users/me/`, `students/`, `students/me/`, `teachers/`, `teachers/me/`,
+- `users/` (admin), `users/me/`, `users/me/profile-image/`, `students/`, `students/me/`, `teachers/`, `teachers/me/`,
   `admin-profiles/`, `teachers/{id}/verify/`, `teachers/{id}/reject/`
 - `courses/`, legacy `classes/`, `enrollments/`, `attendance/`, `live-sessions/`
 - `assignments/`, `submissions/`, `submissions/{id}/grade/`, `exams/`, `grades/`,
@@ -51,6 +51,19 @@ integer primary keys to preserve existing data; they are not UUIDs as shown in t
   managing admin in `managed_by`. Passwords are write-only and stored hashed.
 - `GET/PATCH /api/users/me/` — any authenticated user reads or updates their own name, profile
   image URL, phone, and bio. Email, role, and account status cannot be changed here.
+- `POST /api/users/me/profile-image/` — any authenticated user uploads their profile photo as
+  multipart form data using the `image` field. Accepts JPEG, PNG, or WebP images up to 5 MB.
+  Returns `profile_image` and `profile_picture_url` as the Cloudinary URL and updates the user's
+  role-specific profile photo as well. Returns `400` for an invalid/oversized image and `503` if
+  Cloudinary is not configured or cannot accept the upload.
+
+Example upload from Windows PowerShell with `curl.exe`:
+
+```powershell
+curl.exe -X POST "$apiBase/api/users/me/profile-image/" `
+  -H "Authorization: Bearer $accessToken" `
+  -F "image=@C:\path\to\profile.png"
+```
 
 Example student registration:
 
@@ -86,8 +99,14 @@ Example student registration:
   access. Profiles are created automatically with admin accounts; the API can update
   `profile_picture_url` and `admin_level`.
 
-CV and certificate fields store URLs; this backend does not provide file storage or upload
-endpoints. The ERD's 10 MB and file-type limits must be enforced by the configured upload/storage
+Profile photos can be uploaded using `POST /api/users/me/profile-image/`. Send the image as
+multipart form data in the `image` field (JPEG, PNG, or WebP, up to 5 MB). The API stores it in
+Cloudinary and returns its URL; it updates the signed-in user's profile and their student, teacher,
+or admin profile photo. Set the Render environment variable `CLOUDINARY_URL` to the Cloudinary
+connection string. Keep this credential on the server; never put it in frontend code.
+
+CV and degree-certificate fields remain URLs. This backend does not currently provide document
+uploads; the ERD's 10 MB and file-type limits for those documents must be enforced by an upload
 service before its URL is saved.
 
 ## Courses and approval

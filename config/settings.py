@@ -22,6 +22,7 @@ HMS_TEACHER_ROLE = os.environ.get("HMS_TEACHER_ROLE", "host")
 HMS_STUDENT_ROLE = os.environ.get("HMS_STUDENT_ROLE", "guest")
 HMS_WEBHOOK_URL = os.environ.get("HMS_WEBHOOK_URL", "")
 HMS_WEBHOOK_SECRET = os.environ.get("HMS_WEBHOOK_SECRET", "")
+CLOUDINARY_URL = os.environ.get("CLOUDINARY_URL", "")
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
