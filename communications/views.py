@@ -7,11 +7,17 @@ from accounts.models import User
 from accounts.permissions import IsAdminRole, IsTeacherOrAdminOrReadOnly
 from accounts.scoping import class_scoped
 
-from .models import Announcement, Notification
-from .serializers import AnnouncementSerializer, NotificationSerializer
+from .models import Announcement, Notification, SystemSetting
+from .serializers import (
+    AnnouncementSerializer,
+    NotificationSerializer,
+    SystemSettingSerializer,
+)
 
 
 class AnnouncementViewSet(viewsets.ModelViewSet):
+    """Course announcements; teachers can write only to courses they teach."""
+
     serializer_class = AnnouncementSerializer
     permission_classes = [IsTeacherOrAdminOrReadOnly]
     filterset_fields = ["course", "author"]
@@ -26,7 +32,17 @@ class AnnouncementViewSet(viewsets.ModelViewSet):
         course = serializer.validated_data["course"]
         if user.role == User.Role.TEACHER and course.teacher.user_id != user.id:
             raise PermissionDenied("You can only post announcements to your own courses.")
-        serializer.save(author=user)
+        serializer.save(author=user, teacher=course.teacher)
+
+    def perform_update(self, serializer):
+        user = self.request.user
+        course = serializer.validated_data.get(
+            "course",
+            serializer.instance.course,
+        )
+        if user.role == User.Role.TEACHER and course.teacher.user_id != user.id:
+            raise PermissionDenied("You can only post announcements to your own courses.")
+        serializer.save(teacher=course.teacher)
 
 
 class NotificationViewSet(
@@ -36,7 +52,7 @@ class NotificationViewSet(
     mixins.DestroyModelMixin,
     viewsets.GenericViewSet,
 ):
-    """Users see only their own notifications. Only admins can create them."""
+    """Users read and manage their own notifications; admins can create notifications."""
 
     serializer_class = NotificationSerializer
     filterset_fields = ["is_read"]
@@ -51,6 +67,7 @@ class NotificationViewSet(
 
     @action(detail=True, methods=["post"], url_path="read")
     def mark_read(self, request, pk=None):
+        """Mark this user's notification as read."""
         notification = self.get_object()
         notification.is_read = True
         notification.save(update_fields=["is_read"])
@@ -58,5 +75,21 @@ class NotificationViewSet(
 
     @action(detail=False, methods=["post"], url_path="read-all")
     def mark_all_read(self, request):
+        """Mark every unread notification belonging to the current user as read."""
         updated = self.get_queryset().filter(is_read=False).update(is_read=True)
         return Response({"updated": updated})
+
+
+class SystemSettingViewSet(viewsets.ModelViewSet):
+    """Admin-only key/value settings; every write records the acting admin profile."""
+
+    queryset = SystemSetting.objects.select_related("updated_by__user").order_by("key")
+    serializer_class = SystemSettingSerializer
+    permission_classes = [IsAdminRole]
+    search_fields = ["key", "value"]
+
+    def perform_create(self, serializer):
+        serializer.save(updated_by=self.request.user.admin_profile)
+
+    def perform_update(self, serializer):
+        serializer.save(updated_by=self.request.user.admin_profile)

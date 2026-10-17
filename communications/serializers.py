@@ -2,7 +2,7 @@ from rest_framework import serializers
 
 from academics.models import Course
 
-from .models import Announcement, Notification
+from .models import Announcement, Notification, SystemSetting
 
 
 class AnnouncementSerializer(serializers.ModelSerializer):
@@ -18,12 +18,13 @@ class AnnouncementSerializer(serializers.ModelSerializer):
             "id",
             "author",
             "course",
+            "teacher",
             "school_class",
             "title",
             "content",
             "created_at",
         ]
-        read_only_fields = ["id", "author", "created_at"]
+        read_only_fields = ["id", "author", "teacher", "created_at"]
         extra_kwargs = {"course": {"required": False}}
 
     def validate(self, attrs):
@@ -35,5 +36,12 @@ class AnnouncementSerializer(serializers.ModelSerializer):
 class NotificationSerializer(serializers.ModelSerializer):
     class Meta:
         model = Notification
-        fields = ["id", "user", "title", "message", "is_read", "created_at"]
+        fields = ["id", "user", "title", "message", "type", "is_read", "created_at"]
         read_only_fields = ["id", "created_at"]
+
+
+class SystemSettingSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = SystemSetting
+        fields = ["key", "value", "updated_by", "updated_at"]
+        read_only_fields = ["updated_by", "updated_at"]
