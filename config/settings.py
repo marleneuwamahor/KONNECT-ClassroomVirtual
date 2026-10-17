@@ -17,6 +17,11 @@ import dj_database_url
 HMS_ACCESS_KEY = os.environ.get("HMS_ACCESS_KEY", "")
 HMS_APP_SECRET = os.environ.get("HMS_APP_SECRET", "")
 HMS_TEMPLATE_ID = os.environ.get("HMS_TEMPLATE_ID", "")
+HMS_ENABLED = os.environ.get("HMS_ENABLED", "false").lower() in ("true", "1", "yes")
+HMS_TEACHER_ROLE = os.environ.get("HMS_TEACHER_ROLE", "host")
+HMS_STUDENT_ROLE = os.environ.get("HMS_STUDENT_ROLE", "guest")
+HMS_WEBHOOK_URL = os.environ.get("HMS_WEBHOOK_URL", "")
+HMS_WEBHOOK_SECRET = os.environ.get("HMS_WEBHOOK_SECRET", "")
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 

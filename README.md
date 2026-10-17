@@ -11,7 +11,7 @@ python -m pip install -r requirements.txt
 python manage.py migrate
 python manage.py createsuperuser
 python manage.py runserver
-python manage.py test tests
+python manage.py test
 ```
 
 ## API (all under /api/, JWT bearer auth)
@@ -22,6 +22,68 @@ python manage.py test tests
 - `announcements/`, `notifications/`, `notifications/{id}/read/`, `notifications/read-all/`
 - `payments/`, `payments/{id}/mark-paid/`
 - `audit-logs/` (admin, read-only)
+
+## Live sessions and 100ms
+
+Live sessions belong to a class and use that class's assigned teacher. Only the assigned teacher,
+an enrolled student with an active enrollment, or an admin can retrieve/join a session. Session
+responses include the server-managed `hms_room_id`, `join_deadline` (start time + 15 minutes), and
+`attendance_cutoff` (end time - 15 minutes). Do not send `hms_room_id` or 100ms credentials from the
+client when creating a session.
+
+Configure these server environment variables before creating sessions:
+
+- `HMS_ENABLED=true` to provision 100ms rooms; it defaults to `false` so existing manually linked
+  sessions continue to work until the integration is configured
+- `HMS_ACCESS_KEY`, `HMS_APP_SECRET`, `HMS_TEMPLATE_ID`
+- `HMS_TEACHER_ROLE` (defaults to `host`) and `HMS_STUDENT_ROLE` (defaults to `guest`)
+- `HMS_WEBHOOK_URL` (public HTTPS URL for `/api/live-sessions/webhook/`)
+- `HMS_WEBHOOK_SECRET` (a long, random secret; never expose it to the frontend)
+
+### Schedule a session
+
+`POST /api/live-sessions/` requires a JWT bearer token for an admin or teacher. The teacher field
+is assigned from the class and cannot point to a different teacher.
+
+```json
+{
+  "school_class": 12,
+  "title": "Science lesson",
+  "start_time": "2026-10-20T09:00:00Z",
+  "end_time": "2026-10-20T10:00:00Z"
+}
+```
+
+The response includes `hms_room_id`, `join_deadline`, and `attendance_cutoff`. If the room cannot
+be created, the API returns `503 Service Unavailable` and does not create the local session.
+
+### Join a session
+
+`POST /api/live-sessions/{id}/join/` requires `Authorization: Bearer <access-token>` and an empty
+JSON body. It returns a one-hour 100ms app token:
+
+```json
+{
+  "token": "<short-lived-100ms-token>",
+  "room_id": "<100ms-room-id>",
+  "role": "guest",
+  "expires_in": 3600
+}
+```
+
+The endpoint returns `403` when the join deadline has passed and `404` when the session is outside
+the caller's access scope. Missing 100ms configuration or a session without a room returns `503`.
+Tokens are valid for up to one hour and never beyond the session's join deadline.
+The app secret and management token are never returned.
+
+### Automatic attendance
+
+100ms sends room webhooks to `HMS_WEBHOOK_URL` with the `X-KONNECT-Webhook-Secret` header. The
+backend uses `peer.join.success`, `peer.leave.success`, and `session.close.success` events to record
+one attendance row per student and live session. Attendance is marked present only when the student
+joined by the join deadline and is connected at or after the attendance cutoff. Enrolled students
+without a join event are marked absent when the 100ms session closes. The webhook endpoint is
+server-to-server only; do not call it from frontend code.
 
 ## Roles
 - **admin**: full access

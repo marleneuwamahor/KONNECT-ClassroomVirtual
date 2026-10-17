@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 from django.db import models
 from django.db.models import F, Q
 from django.utils import timezone
@@ -58,11 +60,22 @@ class Attendance(models.Model):
     student = models.ForeignKey(
         "accounts.Student", on_delete=models.CASCADE, related_name="attendance"
     )
+    live_session = models.ForeignKey(
+        "LiveSession",
+        on_delete=models.CASCADE,
+        related_name="attendance",
+        null=True,
+        blank=True,
+    )
     school_class = models.ForeignKey(
         SchoolClass, on_delete=models.CASCADE, related_name="attendance", db_column="class_id"
     )
     attendance_date = models.DateField(default=timezone.localdate)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.PRESENT)
+    joined_at = models.DateTimeField(null=True, blank=True)
+    left_at = models.DateTimeField(null=True, blank=True)
+    auto_marked = models.BooleanField(default=False)
+    marked_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         db_table = "attendance"
@@ -70,8 +83,14 @@ class Attendance(models.Model):
         constraints = [
             models.UniqueConstraint(
                 fields=["student", "school_class", "attendance_date"],
+                condition=Q(live_session__isnull=True),
                 name="uniq_attendance_per_day",
-            )
+            ),
+            models.UniqueConstraint(
+                fields=["student", "live_session"],
+                condition=Q(live_session__isnull=False),
+                name="uniq_student_live_session_attendance",
+            ),
         ]
 
     def __str__(self):
@@ -95,6 +114,13 @@ class LiveSession(models.Model):
     start_time = models.DateTimeField()
     end_time = models.DateTimeField()
     meeting_url = models.URLField(blank=True)
+    hms_room_id = models.CharField(
+        max_length=100,
+        blank=True,
+        default="",
+        help_text="Room ID assigned by 100ms.",
+    )
+    tools_enabled = models.JSONField(default=list, blank=True)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.SCHEDULED)
 
     class Meta:
@@ -108,3 +134,19 @@ class LiveSession(models.Model):
 
     def __str__(self):
         return f"{self.title} ({self.start_time:%Y-%m-%d %H:%M})"
+
+    @property
+    def join_deadline(self):
+        return self.start_time + timedelta(minutes=15)
+
+    @property
+    def attendance_cutoff(self):
+        return self.end_time - timedelta(minutes=15)
+
+
+class HMSWebhookEvent(models.Model):
+    event_id = models.CharField(max_length=100, primary_key=True)
+    received_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        db_table = "hms_webhook_events"
