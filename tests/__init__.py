@@ -4,7 +4,7 @@ from django.utils import timezone
 from rest_framework.test import APITestCase
 
 from academics.models import Course, Enrollment
-from accounts.models import Student, Teacher, User
+from accounts.models import AdminProfile, Student, Teacher, User
 from audit.models import AuditLog
 
 
@@ -100,7 +100,7 @@ class AcademicsTests(BaseAPITest):
         self.assertEqual(response.status_code, 200)
         course.refresh_from_db()
         self.assertEqual(course.status, Course.Status.APPROVED)
-        self.assertEqual(course.approved_by, self.admin)
+        self.assertEqual(course.approved_by, AdminProfile.objects.get(user=self.admin))
 
         self.login(self.s_user)
         self.assertIn(

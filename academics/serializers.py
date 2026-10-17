@@ -1,7 +1,7 @@
 
 from rest_framework import serializers
 
-from .models import Attendance, Course, Enrollment, LiveSession
+from .models import Attendance, Course, Enrollment, Exam, Grade, LiveSession, StudentFlag
 
 
 class CourseSerializer(serializers.ModelSerializer):
@@ -27,6 +27,75 @@ class CourseSerializer(serializers.ModelSerializer):
         if value < 0:
             raise serializers.ValidationError("Course limit cannot be negative.")
         return value
+
+
+class ExamSerializer(serializers.ModelSerializer):
+    """Exam schedule and maximum mark for a course."""
+
+    class Meta:
+        model = Exam
+        fields = [
+            "id",
+            "course",
+            "title",
+            "exam_date",
+            "duration_minutes",
+            "total_marks",
+        ]
+        read_only_fields = ["id"]
+
+    def validate_duration_minutes(self, value):
+        if value <= 0:
+            raise serializers.ValidationError("Duration must be greater than zero.")
+        return value
+
+    def validate_total_marks(self, value):
+        if value <= 0:
+            raise serializers.ValidationError("Total marks must be greater than zero.")
+        return value
+
+
+class ExamGradeSerializer(serializers.ModelSerializer):
+    """A student's result for one exam; grade letters are entered by the teacher."""
+
+    class Meta:
+        model = Grade
+        fields = [
+            "id",
+            "exam",
+            "student",
+            "graded_by",
+            "score",
+            "grade_letter",
+            "teacher_feedback",
+            "graded_at",
+        ]
+        read_only_fields = ["id", "graded_by", "graded_at"]
+
+    def validate(self, attrs):
+        exam = attrs.get("exam", getattr(self.instance, "exam", None))
+        score = attrs.get("score", getattr(self.instance, "score", None))
+        if exam and score is not None and score > exam.total_marks:
+            raise serializers.ValidationError(
+                {"score": "Score cannot exceed the exam's total marks."}
+            )
+        return attrs
+
+
+class StudentFlagSerializer(serializers.ModelSerializer):
+    """A teacher's reason for flagging a student in one course."""
+
+    class Meta:
+        model = StudentFlag
+        fields = [
+            "id",
+            "student",
+            "course",
+            "flagged_by",
+            "reason",
+            "created_at",
+        ]
+        read_only_fields = ["id", "flagged_by", "created_at"]
 
 
 class SchoolClassSerializer(serializers.ModelSerializer):
@@ -143,11 +212,18 @@ class AttendanceSerializer(serializers.ModelSerializer):
 
 
 class LiveSessionSerializer(serializers.ModelSerializer):
+    """Schedule a course session and expose the deadline and attendance cutoff."""
+
     school_class = serializers.PrimaryKeyRelatedField(
         source="course",
         queryset=Course.objects.all(),
         required=False,
     )
+    join_link = serializers.URLField(source="meeting_url", required=False)
+    starts_at = serializers.DateTimeField(source="start_time", required=False)
+    ends_at = serializers.DateTimeField(source="end_time", required=False)
+    join_deadline = serializers.DateTimeField(read_only=True)
+    attendance_cutoff = serializers.DateTimeField(read_only=True)
 
     class Meta:
         model = LiveSession
@@ -159,7 +235,10 @@ class LiveSessionSerializer(serializers.ModelSerializer):
             "title",
             "start_time",
             "end_time",
+            "starts_at",
+            "ends_at",
             "meeting_url",
+            "join_link",
             "hms_room_id",
             "tools_enabled",
             "join_deadline",
@@ -170,6 +249,8 @@ class LiveSessionSerializer(serializers.ModelSerializer):
         extra_kwargs = {
             "teacher": {"required": False},
             "course": {"required": False},
+            "start_time": {"required": False},
+            "end_time": {"required": False},
         }
 
     def validate(self, attrs):
@@ -191,6 +272,10 @@ class LiveSessionSerializer(serializers.ModelSerializer):
             getattr(self.instance, "end_time", None),
         )
 
+        if not start_time:
+            raise serializers.ValidationError({"starts_at": "This field is required."})
+        if not end_time:
+            raise serializers.ValidationError({"ends_at": "This field is required."})
         if start_time and end_time and end_time <= start_time:
             raise serializers.ValidationError({
                 "end_time": "End time must be after start time."

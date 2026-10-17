@@ -36,7 +36,7 @@ class Course(models.Model):
         default=Status.PENDING,
     )
     approved_by = models.ForeignKey(
-        "accounts.User",
+        "accounts.AdminProfile",
         null=True,
         blank=True,
         on_delete=models.SET_NULL,
@@ -64,7 +64,7 @@ class Enrollment(models.Model):
     course = models.ForeignKey(
         Course, on_delete=models.CASCADE, related_name="enrollments"
     )
-    enrolled_at = models.DateField(default=timezone.localdate)
+    enrolled_at = models.DateTimeField(default=timezone.now)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.ACTIVE)
 
     class Meta:
@@ -178,6 +178,86 @@ class HMSWebhookEvent(models.Model):
 
     class Meta:
         db_table = "hms_webhook_events"
+
+
+class Exam(models.Model):
+    course = models.ForeignKey(
+        Course,
+        on_delete=models.CASCADE,
+        related_name="exams",
+    )
+    title = models.CharField(max_length=200)
+    exam_date = models.DateTimeField()
+    duration_minutes = models.PositiveIntegerField()
+    total_marks = models.PositiveIntegerField()
+
+    class Meta:
+        db_table = "exams"
+        ordering = ["exam_date", "id"]
+
+    def __str__(self):
+        return f"{self.title} ({self.course})"
+
+
+class Grade(models.Model):
+    exam = models.ForeignKey(
+        Exam,
+        on_delete=models.CASCADE,
+        related_name="grades",
+    )
+    student = models.ForeignKey(
+        "accounts.Student",
+        on_delete=models.CASCADE,
+        related_name="exam_grades",
+    )
+    graded_by = models.ForeignKey(
+        "accounts.Teacher",
+        on_delete=models.PROTECT,
+        related_name="grades_awarded",
+    )
+    score = models.DecimalField(max_digits=8, decimal_places=2)
+    grade_letter = models.CharField(max_length=5, blank=True)
+    teacher_feedback = models.TextField(blank=True)
+    graded_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        db_table = "grades"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["exam", "student"],
+                name="uniq_grade_per_exam_student",
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.student} - {self.exam}: {self.score}"
+
+
+class StudentFlag(models.Model):
+    student = models.ForeignKey(
+        "accounts.Student",
+        on_delete=models.CASCADE,
+        related_name="flags",
+    )
+    course = models.ForeignKey(
+        Course,
+        on_delete=models.CASCADE,
+        related_name="student_flags",
+    )
+    flagged_by = models.ForeignKey(
+        "accounts.Teacher",
+        on_delete=models.PROTECT,
+        related_name="student_flags",
+    )
+    reason = models.TextField()
+    created_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        db_table = "student_flags"
+        ordering = ["-created_at", "id"]
+
+    def __str__(self):
+        return f"{self.student} flagged in {self.course}"
 
 
 SchoolClass = Course

@@ -16,13 +16,16 @@ from rest_framework.response import Response
 from accounts.models import User
 from accounts.permissions import IsAdminRole, IsTeacherOrAdmin, IsTeacherOrAdminOrReadOnly
 from accounts.scoping import is_admin, student_scoped
-from .models import Attendance, Course, Enrollment, LiveSession
+from .models import Attendance, Course, Enrollment, Exam, Grade, LiveSession, StudentFlag
 from .serializers import (
     AttendanceSerializer,
     CourseSerializer,
     EnrollmentSerializer,
+    ExamGradeSerializer,
+    ExamSerializer,
     LiveSessionSerializer,
     SchoolClassSerializer,
+    StudentFlagSerializer,
 )
 from .services.hms_service import (
     HMS_WEBHOOK_SECRET_HEADER,
@@ -54,6 +57,9 @@ def resolve_teacher(request, serializer):
 
 
 class CourseViewSet(viewsets.ModelViewSet):
+    """Browse courses, create pending teacher courses and administer approvals."""
+
+    lookup_value_regex = r"\d+"
     serializer_class = CourseSerializer
     permission_classes = [IsTeacherOrAdminOrReadOnly]
     filterset_fields = ["status", "visibility", "teacher"]
@@ -88,7 +94,7 @@ class CourseViewSet(viewsets.ModelViewSet):
         serializer.save(
             teacher=teacher,
             status=Course.Status.APPROVED,
-            approved_by=self.request.user,
+            approved_by=self.request.user.admin_profile,
         )
 
     def perform_update(self, serializer):
@@ -99,14 +105,16 @@ class CourseViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=["post"], permission_classes=[IsAdminRole])
     def approve(self, request, pk=None):
+        """Approve a pending course and record the approving administrator profile."""
         course = self.get_object()
         course.status = Course.Status.APPROVED
-        course.approved_by = request.user
+        course.approved_by = request.user.admin_profile
         course.save(update_fields=["status", "approved_by"])
         return Response(self.get_serializer(course).data)
 
     @action(detail=True, methods=["post"], permission_classes=[IsAdminRole])
     def reject(self, request, pk=None):
+        """Reject a course and clear its approving administrator."""
         course = self.get_object()
         course.status = Course.Status.REJECTED
         course.approved_by = None
@@ -131,7 +139,176 @@ class SchoolClassViewSet(CourseViewSet):
         ).distinct()
 
 
+class ExamViewSet(viewsets.ModelViewSet):
+    """Schedule course exams; students can read exams for their active courses."""
+
+    serializer_class = ExamSerializer
+    filterset_fields = ["course", "exam_date"]
+    search_fields = ["title"]
+    ordering_fields = ["exam_date", "title"]
+
+    def get_queryset(self):
+        queryset = Exam.objects.select_related("course", "course__teacher__user")
+        user = self.request.user
+        if is_admin(user):
+            return queryset
+        if user.role == User.Role.TEACHER:
+            return queryset.filter(course__teacher__user=user)
+        if user.role == User.Role.STUDENT:
+            return queryset.filter(
+                course__status=Course.Status.APPROVED,
+                course__enrollments__student__user=user,
+                course__enrollments__status=Enrollment.Status.ACTIVE,
+            ).distinct()
+        return queryset.none()
+
+    def get_permissions(self):
+        if self.action in ("list", "retrieve"):
+            return [permissions.IsAuthenticated()]
+        return [IsTeacherOrAdmin()]
+
+    def _validate_course_access(self, course):
+        if course.status != Course.Status.APPROVED:
+            raise ValidationError({"course": "Exams require an approved course."})
+        if (
+            self.request.user.role == User.Role.TEACHER
+            and course.teacher.user_id != self.request.user.id
+        ):
+            raise PermissionDenied("You can manage exams only for your own courses.")
+
+    def perform_create(self, serializer):
+        self._validate_course_access(serializer.validated_data["course"])
+        serializer.save()
+
+    def perform_update(self, serializer):
+        course = serializer.validated_data.get(
+            "course",
+            serializer.instance.course,
+        )
+        self._validate_course_access(course)
+        serializer.save()
+
+
+class GradeViewSet(viewsets.ModelViewSet):
+    """Record exam scores; students can read only their own grades."""
+
+    serializer_class = ExamGradeSerializer
+    filterset_fields = ["exam", "student", "graded_by"]
+    ordering_fields = ["graded_at", "score"]
+
+    def get_queryset(self):
+        queryset = Grade.objects.select_related(
+            "exam__course",
+            "student__user",
+            "graded_by__user",
+        ).order_by("-graded_at", "id")
+        return student_scoped(
+            queryset,
+            self.request.user,
+            class_path="exam__course",
+        )
+
+    def get_permissions(self):
+        if self.action in ("list", "retrieve"):
+            return [permissions.IsAuthenticated()]
+        return [IsTeacherOrAdmin()]
+
+    def perform_create(self, serializer):
+        exam = serializer.validated_data["exam"]
+        student = serializer.validated_data["student"]
+        if not exam.course.enrollments.filter(
+            student=student,
+            status=Enrollment.Status.ACTIVE,
+        ).exists():
+            raise ValidationError(
+                {"student": "Grades can be recorded only for active course enrollments."}
+            )
+        teacher = exam.course.teacher
+        if (
+            self.request.user.role == User.Role.TEACHER
+            and teacher.user_id != self.request.user.id
+        ):
+            raise PermissionDenied("You can grade exams only for your own courses.")
+        serializer.save(graded_by=teacher)
+
+    def perform_update(self, serializer):
+        exam = serializer.validated_data.get("exam", serializer.instance.exam)
+        student = serializer.validated_data.get("student", serializer.instance.student)
+        if not exam.course.enrollments.filter(
+            student=student,
+            status=Enrollment.Status.ACTIVE,
+        ).exists():
+            raise ValidationError(
+                {"student": "Grades can be recorded only for active course enrollments."}
+            )
+        teacher = exam.course.teacher
+        if (
+            self.request.user.role == User.Role.TEACHER
+            and teacher.user_id != self.request.user.id
+        ):
+            raise PermissionDenied("You can grade exams only for your own courses.")
+        serializer.save(graded_by=teacher)
+
+
+class StudentFlagViewSet(viewsets.ModelViewSet):
+    """Flag a student in a course; teachers may flag their own active enrollees."""
+
+    serializer_class = StudentFlagSerializer
+    filterset_fields = ["student", "course", "flagged_by"]
+    search_fields = ["reason"]
+    ordering_fields = ["created_at"]
+
+    def get_queryset(self):
+        queryset = StudentFlag.objects.select_related(
+            "student__user",
+            "course",
+            "flagged_by__user",
+        )
+        return student_scoped(queryset, self.request.user)
+
+    def get_permissions(self):
+        if self.action in ("list", "retrieve"):
+            return [permissions.IsAuthenticated()]
+        return [IsTeacherOrAdmin()]
+
+    def _validate_flag(self, student, course):
+        if not course.enrollments.filter(
+            student=student,
+            status=Enrollment.Status.ACTIVE,
+        ).exists():
+            raise ValidationError(
+                {"student": "Only students actively enrolled in the course can be flagged."}
+            )
+        teacher = course.teacher
+        if (
+            self.request.user.role == User.Role.TEACHER
+            and teacher.user_id != self.request.user.id
+        ):
+            raise PermissionDenied("You can flag students only in your own courses.")
+        return teacher
+
+    def perform_create(self, serializer):
+        student = serializer.validated_data["student"]
+        course = serializer.validated_data["course"]
+        teacher = self._validate_flag(student, course)
+        serializer.save(flagged_by=teacher)
+
+    def perform_update(self, serializer):
+        student = serializer.validated_data.get(
+            "student",
+            serializer.instance.student,
+        )
+        course = serializer.validated_data.get(
+            "course",
+            serializer.instance.course,
+        )
+        teacher = self._validate_flag(student, course)
+        serializer.save(flagged_by=teacher)
+
+
 class EnrollmentViewSet(viewsets.ModelViewSet):
+    """Admin-managed student-course enrollments with course approval and capacity checks."""
+
     serializer_class = EnrollmentSerializer
     filterset_fields = ["student", "course", "status"]
 
@@ -158,6 +335,8 @@ class EnrollmentViewSet(viewsets.ModelViewSet):
 
 
 class AttendanceViewSet(viewsets.ModelViewSet):
+    """Read attendance by role and record manual attendance for teacher-owned courses."""
+
     serializer_class = AttendanceSerializer
     filterset_fields = ["student", "course", "attendance_date", "status"]
 
@@ -177,6 +356,16 @@ class AttendanceViewSet(viewsets.ModelViewSet):
         course = serializer.validated_data.get(
             "course", getattr(serializer.instance, "course", None)
         )
+        student = serializer.validated_data.get(
+            "student", getattr(serializer.instance, "student", None)
+        )
+        if student and not course.enrollments.filter(
+            student=student,
+            status=Enrollment.Status.ACTIVE,
+        ).exists():
+            raise ValidationError(
+                {"student": "Attendance can be recorded only for active course enrollments."}
+            )
         if user.role == User.Role.TEACHER and course.teacher.user_id != user.id:
             raise PermissionDenied("You can only record attendance for your own courses.")
 
@@ -190,6 +379,8 @@ class AttendanceViewSet(viewsets.ModelViewSet):
 
 
 class LiveSessionViewSet(viewsets.ModelViewSet):
+    """Schedule and join course sessions; 100ms tokens and webhook routes are server-managed."""
+
     serializer_class = LiveSessionSerializer
     permission_classes = [IsTeacherOrAdminOrReadOnly]
     filterset_fields = ["course", "teacher", "status"]
@@ -260,6 +451,7 @@ class LiveSessionViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=["post"])
     def join(self, request, pk=None):
+        """Return a short-lived 100ms join token to an eligible participant."""
         session = self.get_object()
         now = timezone.now()
 
@@ -314,6 +506,7 @@ class LiveSessionViewSet(viewsets.ModelViewSet):
         authentication_classes=[],
     )
     def webhook(self, request):
+        """Receive authenticated 100ms room events and update attendance."""
         configured_secret = settings.HMS_WEBHOOK_SECRET
         if not configured_secret:
             return Response(
